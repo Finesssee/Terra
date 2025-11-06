@@ -4,9 +4,13 @@ import com.steve.ai.entity.SteveEntity;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.level.block.Block;
 
+// TODO: Will be implemented later - Baritone pathfinding integration
+// Currently using vanilla Minecraft pathfinding instead
+// Future: Will integrate Baritone API for advanced pathfinding and automation
+
 /**
  * Interface for Baritone integration.
- * 
+ *
  * NOTE: Baritone integration is currently stubbed out.
  * To fully integrate Baritone:
  * 1. Add Baritone API jar to libs/ folder

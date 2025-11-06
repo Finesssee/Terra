@@ -4,6 +4,9 @@ import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+// TODO: Will be implemented later - dynamic prompt templating system
+// Currently prompts are hardcoded in PromptBuilder using text blocks
+// This provides placeholder infrastructure for variable prompt templates
 public class PromptTemplate {
     private final String template;
     private final String[] inputVariables;
