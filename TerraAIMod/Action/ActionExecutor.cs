@@ -43,9 +43,14 @@ namespace TerraAIMod.Action
         private int ticksSinceLastAction;
 
         /// <summary>
-        /// Lazy-initialized task planner for AI-driven task decomposition.
+        /// Lazy-initialized AI task planner for AI-driven task decomposition.
         /// </summary>
-        private SimpleTaskPlanner taskPlanner;
+        private TaskPlanner aiTaskPlanner;
+
+        /// <summary>
+        /// Lazy-initialized simple fallback task planner when no API key is configured.
+        /// </summary>
+        private SimpleTaskPlanner simpleTaskPlanner;
 
         /// <summary>
         /// Action to execute when idle (following the player).
@@ -67,18 +72,54 @@ namespace TerraAIMod.Action
         public string CurrentGoal => currentGoal;
 
         /// <summary>
-        /// Gets the task planner, initializing it lazily if needed.
+        /// Gets the AI task planner, initializing it lazily if needed.
         /// </summary>
-        private SimpleTaskPlanner TaskPlanner
+        private TaskPlanner AITaskPlanner
         {
             get
             {
-                if (taskPlanner == null)
+                if (aiTaskPlanner == null)
                 {
-                    taskPlanner = new SimpleTaskPlanner(terra);
+                    aiTaskPlanner = new TaskPlanner();
                 }
-                return taskPlanner;
+                return aiTaskPlanner;
             }
+        }
+
+        /// <summary>
+        /// Gets the simple task planner, initializing it lazily if needed.
+        /// </summary>
+        private SimpleTaskPlanner SimpleTaskPlannerInstance
+        {
+            get
+            {
+                if (simpleTaskPlanner == null)
+                {
+                    simpleTaskPlanner = new SimpleTaskPlanner(terra);
+                }
+                return simpleTaskPlanner;
+            }
+        }
+
+        /// <summary>
+        /// Checks if an API key is configured for the current AI provider.
+        /// </summary>
+        /// <returns>True if an API key is configured, false otherwise.</returns>
+        private bool HasApiKeyConfigured()
+        {
+            var config = ModContent.GetInstance<TerraConfig>();
+            if (config == null)
+                return false;
+
+            string provider = config.AIProvider?.ToLowerInvariant() ?? "groq";
+
+            return provider switch
+            {
+                "openai" => !string.IsNullOrWhiteSpace(config.OpenAIApiKey),
+                "gemini" => !string.IsNullOrWhiteSpace(config.GeminiApiKey),
+                "groq" => !string.IsNullOrWhiteSpace(config.GroqApiKey),
+                _ => !string.IsNullOrWhiteSpace(config.GroqApiKey)
+            };
         }
 
         #endregion
@@ -96,7 +137,8 @@ namespace TerraAIMod.Action
             this.currentAction = null;
             this.currentGoal = null;
             this.ticksSinceLastAction = 0;
-            this.taskPlanner = null;
+            this.aiTaskPlanner = null;
+            this.simpleTaskPlanner = null;
             this.idleFollowAction = null;
         }
 
@@ -106,6 +148,7 @@ namespace TerraAIMod.Action
 
         /// <summary>
         /// Processes a natural language command by planning tasks and queuing them for execution.
+        /// Uses the AI-powered TaskPlanner if an API key is configured, otherwise falls back to SimpleTaskPlanner.
         /// </summary>
         /// <param name="command">The natural language command to process.</param>
         public async System.Threading.Tasks.Task ProcessNaturalLanguageCommand(string command)
@@ -118,8 +161,23 @@ namespace TerraAIMod.Action
 
             try
             {
-                // Plan tasks using the AI planner
-                var response = await TaskPlanner.PlanTasksAsync(command);
+                TaskPlanResponse response;
+
+                // Check if an API key is configured - use AI TaskPlanner if so, otherwise fall back to simple planner
+                if (HasApiKeyConfigured())
+                {
+                    // Use the AI-powered TaskPlanner
+                    var parsedResponse = await AITaskPlanner.PlanTasksAsync(terra, command);
+
+                    // Map ParsedResponse to TaskPlanResponse
+                    response = MapParsedResponseToTaskPlanResponse(parsedResponse);
+                }
+                else
+                {
+                    // Fall back to simple task planner when no API key is configured
+                    TerraAIMod.Instance?.Logger.Info("No API key configured, using SimpleTaskPlanner fallback");
+                    response = await SimpleTaskPlannerInstance.PlanTasksAsync(command);
+                }
 
                 if (response != null)
                 {
@@ -149,6 +207,52 @@ namespace TerraAIMod.Action
                 TerraAIMod.Instance?.Logger.Error($"Error processing command: {ex.Message}");
                 terra.SendChatMessage($"I had trouble understanding that command: {ex.Message}");
             }
+        }
+
+        /// <summary>
+        /// Maps a ParsedResponse from the AI TaskPlanner to the TaskPlanResponse format expected by ActionExecutor.
+        /// </summary>
+        /// <param name="parsedResponse">The parsed response from the AI TaskPlanner.</param>
+        /// <returns>A TaskPlanResponse with the plan and tasks.</returns>
+        private TaskPlanResponse MapParsedResponseToTaskPlanResponse(ParsedResponse parsedResponse)
+        {
+            var response = new TaskPlanResponse();
+
+            if (parsedResponse == null)
+            {
+                response.Plan = "Failed to get response from AI";
+                response.Tasks = new List<Task>();
+                return response;
+            }
+
+            if (!parsedResponse.Success)
+            {
+                // If parsing failed, log the error but still try to use any extracted tasks
+                TerraAIMod.Instance?.Logger.Warn($"AI response parsing issue: {parsedResponse.Error}");
+            }
+
+            // Map the plan - use Reasoning + Plan, or just Plan if Reasoning is empty
+            if (!string.IsNullOrEmpty(parsedResponse.Reasoning) && !string.IsNullOrEmpty(parsedResponse.Plan))
+            {
+                response.Plan = parsedResponse.Plan;
+            }
+            else if (!string.IsNullOrEmpty(parsedResponse.Plan))
+            {
+                response.Plan = parsedResponse.Plan;
+            }
+            else if (!string.IsNullOrEmpty(parsedResponse.Reasoning))
+            {
+                response.Plan = parsedResponse.Reasoning;
+            }
+            else
+            {
+                response.Plan = "Executing command";
+            }
+
+            // Map tasks directly - they use the same Task class
+            response.Tasks = parsedResponse.Tasks ?? new List<Task>();
+
+            return response;
         }
 
         /// <summary>
