@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text;
 using Microsoft.Xna.Framework;
 using Terraria;
 using Terraria.ID;
@@ -334,6 +335,122 @@ namespace TerraAIMod.Memory
                 defeated.Add("Everscream");
 
             return defeated;
+        }
+
+        /// <summary>
+        /// Gets a comprehensive context summary for LLM prompts.
+        /// Includes location, environment, nearby entities, and world state.
+        /// </summary>
+        /// <returns>A formatted context summary string.</returns>
+        public string GetContextSummary()
+        {
+            var sb = new StringBuilder();
+
+            // Location and environment
+            sb.AppendLine("=== Environment ===");
+            sb.AppendLine($"Biome: {GetCurrentBiome()}");
+            sb.AppendLine($"Depth: {GetDepthDescription()}");
+            sb.AppendLine($"Time: {GetTimeOfDay()}");
+            sb.AppendLine($"World Progress: {GetWorldProgress()}");
+
+            // Weather and events
+            if (Main.raining)
+                sb.AppendLine("Weather: Raining");
+            if (Main.bloodMoon)
+                sb.AppendLine("Event: Blood Moon!");
+            if (Main.eclipse)
+                sb.AppendLine("Event: Solar Eclipse!");
+            if (Main.invasionType > 0)
+                sb.AppendLine($"Event: Invasion in progress (Type {Main.invasionType})");
+
+            // Nearby entities
+            sb.AppendLine();
+            sb.AppendLine("=== Nearby Entities ===");
+            var playerNames = GetNearbyPlayerNames();
+            sb.AppendLine($"Players: {(playerNames.Count > 0 ? string.Join(", ", playerNames) : "None")}");
+            sb.AppendLine($"Friendly NPCs: {GetNearbyNPCsSummary()}");
+            sb.AppendLine($"Enemies: {GetNearbyEnemiesSummary()}");
+
+            // Threat assessment
+            if (nearbyEnemies.Count > 0)
+            {
+                var closestEnemy = nearbyEnemies
+                    .Where(e => e != null && e.active)
+                    .OrderBy(e => Vector2.Distance(terra.Center, e.Center))
+                    .FirstOrDefault();
+
+                if (closestEnemy != null)
+                {
+                    float distance = Vector2.Distance(terra.Center, closestEnemy.Center) / 16f;
+                    sb.AppendLine($"Closest Threat: {closestEnemy.GivenOrTypeName} ({distance:F1} tiles away)");
+                }
+            }
+
+            return sb.ToString();
+        }
+
+        /// <summary>
+        /// Gets a brief status string for quick context.
+        /// </summary>
+        /// <returns>A one-line status summary.</returns>
+        public string GetBriefStatus()
+        {
+            var parts = new List<string>();
+            parts.Add(GetCurrentBiome());
+            parts.Add(GetDepthDescription());
+            parts.Add(GetTimeOfDay());
+
+            if (nearbyEnemies.Count > 0)
+                parts.Add($"{nearbyEnemies.Count} enemies nearby");
+
+            var players = GetNearbyPlayerNames();
+            if (players.Count > 0)
+                parts.Add($"with {string.Join(", ", players)}");
+
+            return string.Join(" | ", parts);
+        }
+
+        /// <summary>
+        /// Checks if there are immediate threats nearby.
+        /// </summary>
+        /// <returns>True if hostile enemies are within close range.</returns>
+        public bool HasImmediateThreats()
+        {
+            if (terra == null || nearbyEnemies.Count == 0)
+                return false;
+
+            float dangerRadius = 15f * 16f; // 15 tiles in pixels
+            return nearbyEnemies.Any(e =>
+                e != null && e.active &&
+                Vector2.Distance(terra.Center, e.Center) < dangerRadius);
+        }
+
+        /// <summary>
+        /// Gets the closest player to Terra.
+        /// </summary>
+        /// <returns>The closest Player, or null if none nearby.</returns>
+        public Player GetClosestPlayer()
+        {
+            if (terra == null || nearbyPlayers.Count == 0)
+                return null;
+
+            return nearbyPlayers
+                .Where(p => p != null && p.active && !p.dead)
+                .OrderBy(p => Vector2.Distance(terra.Center, p.Center))
+                .FirstOrDefault();
+        }
+
+        /// <summary>
+        /// Gets the distance to the closest player in tiles.
+        /// </summary>
+        /// <returns>Distance in tiles, or -1 if no player nearby.</returns>
+        public float GetDistanceToClosestPlayer()
+        {
+            var player = GetClosestPlayer();
+            if (player == null || terra == null)
+                return -1f;
+
+            return Vector2.Distance(terra.Center, player.Center) / 16f;
         }
 
         #endregion
