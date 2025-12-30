@@ -8,6 +8,7 @@ using Terraria.ModLoader.IO;
 using TerraAIMod.Memory;
 using TerraAIMod.Action;
 using TerraAIMod.Pathfinding;
+using TerraAIMod.Systems;
 
 namespace TerraAIMod.NPCs
 {
@@ -70,6 +71,21 @@ namespace TerraAIMod.NPCs
             ? Main.player[TargetPlayerIndex]
             : null;
 
+        /// <summary>
+        /// Terra's inventory of items (40 slots like a player).
+        /// </summary>
+        public Item[] Inventory { get; private set; }
+
+        /// <summary>
+        /// The currently equipped weapon slot index.
+        /// </summary>
+        public int EquippedWeaponSlot { get; set; } = -1;
+
+        /// <summary>
+        /// Maximum inventory size.
+        /// </summary>
+        public const int InventorySize = 40;
+
         #endregion
 
         #region ModNPC Overrides
@@ -124,6 +140,9 @@ namespace TerraAIMod.NPCs
         public override void OnSpawn(Terraria.DataStructures.IEntitySource source)
         {
             base.OnSpawn(source);
+
+            // Initialize inventory
+            InitializeInventory();
 
             // Initialize memory system with reference to this NPC
             Memory = new TerraMemory(this);
@@ -296,7 +315,13 @@ namespace TerraAIMod.NPCs
             // Add to memory
             Memory?.AddMessage("assistant", message);
 
-            // Display as NPC chat
+            // Add to the UI chat panel (client-side)
+            if (Main.netMode != NetmodeID.Server)
+            {
+                TerraSystem.AddTerraMessage(TerraName, message);
+            }
+
+            // Display as NPC chat in game
             if (Main.netMode == NetmodeID.SinglePlayer)
             {
                 Main.NewText($"<{TerraName}> {message}", Color.LightGreen);
@@ -512,6 +537,276 @@ namespace TerraAIMod.NPCs
             }
 
             TargetPlayerIndex = nearestIndex;
+        }
+
+        /// <summary>
+        /// Initializes Terra's inventory with empty slots.
+        /// </summary>
+        private void InitializeInventory()
+        {
+            Inventory = new Item[InventorySize];
+            for (int i = 0; i < InventorySize; i++)
+            {
+                Inventory[i] = new Item();
+                Inventory[i].TurnToAir();
+            }
+
+            // Give Terra a default starter weapon (wooden sword)
+            Inventory[0].SetDefaults(ItemID.WoodenSword);
+            Inventory[0].stack = 1;
+
+            // Give some wooden arrows as default ammo
+            Inventory[1].SetDefaults(ItemID.WoodenArrow);
+            Inventory[1].stack = 100;
+        }
+
+        #endregion
+
+        #region Inventory Methods
+
+        /// <summary>
+        /// Adds an item to Terra's inventory.
+        /// </summary>
+        /// <param name="itemType">The item type ID to add.</param>
+        /// <param name="stack">The stack count.</param>
+        /// <returns>True if the item was added successfully.</returns>
+        public bool AddItemToInventory(int itemType, int stack = 1)
+        {
+            if (Inventory == null)
+                InitializeInventory();
+
+            // First try to stack with existing items
+            for (int i = 0; i < InventorySize; i++)
+            {
+                if (Inventory[i].type == itemType && Inventory[i].stack < Inventory[i].maxStack)
+                {
+                    int spaceAvailable = Inventory[i].maxStack - Inventory[i].stack;
+                    int toAdd = Math.Min(stack, spaceAvailable);
+                    Inventory[i].stack += toAdd;
+                    stack -= toAdd;
+
+                    if (stack <= 0)
+                        return true;
+                }
+            }
+
+            // Then try to find an empty slot
+            for (int i = 0; i < InventorySize; i++)
+            {
+                if (Inventory[i].IsAir)
+                {
+                    Inventory[i].SetDefaults(itemType);
+                    Inventory[i].stack = Math.Min(stack, Inventory[i].maxStack);
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// Removes an item from Terra's inventory.
+        /// </summary>
+        /// <param name="itemType">The item type ID to remove.</param>
+        /// <param name="count">The amount to remove.</param>
+        /// <returns>True if the item was removed successfully.</returns>
+        public bool RemoveItemFromInventory(int itemType, int count = 1)
+        {
+            if (Inventory == null)
+                return false;
+
+            for (int i = 0; i < InventorySize; i++)
+            {
+                if (Inventory[i].type == itemType)
+                {
+                    if (Inventory[i].stack >= count)
+                    {
+                        Inventory[i].stack -= count;
+                        if (Inventory[i].stack <= 0)
+                        {
+                            Inventory[i].TurnToAir();
+                        }
+                        return true;
+                    }
+                    else
+                    {
+                        count -= Inventory[i].stack;
+                        Inventory[i].TurnToAir();
+                    }
+                }
+            }
+
+            return count <= 0;
+        }
+
+        /// <summary>
+        /// Checks if Terra has an item in inventory.
+        /// </summary>
+        /// <param name="itemType">The item type ID to check.</param>
+        /// <param name="count">The minimum count required.</param>
+        /// <returns>True if Terra has at least the specified count of the item.</returns>
+        public bool HasItem(int itemType, int count = 1)
+        {
+            if (Inventory == null)
+                return false;
+
+            int totalCount = 0;
+            for (int i = 0; i < InventorySize; i++)
+            {
+                if (Inventory[i].type == itemType)
+                {
+                    totalCount += Inventory[i].stack;
+                    if (totalCount >= count)
+                        return true;
+                }
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// Gets the count of a specific item in Terra's inventory.
+        /// </summary>
+        /// <param name="itemType">The item type ID to count.</param>
+        /// <returns>The total count of the item.</returns>
+        public int GetItemCount(int itemType)
+        {
+            if (Inventory == null)
+                return 0;
+
+            int totalCount = 0;
+            for (int i = 0; i < InventorySize; i++)
+            {
+                if (Inventory[i].type == itemType)
+                {
+                    totalCount += Inventory[i].stack;
+                }
+            }
+
+            return totalCount;
+        }
+
+        /// <summary>
+        /// Finds the best weapon in inventory based on damage.
+        /// </summary>
+        /// <param name="preferRanged">Whether to prefer ranged weapons.</param>
+        /// <returns>The inventory slot index of the best weapon, or -1 if none found.</returns>
+        public int FindBestWeaponSlot(bool preferRanged = false)
+        {
+            if (Inventory == null)
+                return -1;
+
+            int bestSlot = -1;
+            int bestDamage = 0;
+
+            for (int i = 0; i < InventorySize; i++)
+            {
+                Item item = Inventory[i];
+                if (item.IsAir || item.damage <= 0)
+                    continue;
+
+                bool isRanged = item.CountsAsClass(DamageClass.Ranged);
+                bool isMelee = item.CountsAsClass(DamageClass.Melee);
+
+                // Skip if doesn't match preference and we already have a weapon
+                if (preferRanged && !isRanged && bestSlot >= 0)
+                    continue;
+                if (!preferRanged && !isMelee && bestSlot >= 0)
+                    continue;
+
+                // Check if this weapon is better
+                if (preferRanged && isRanged)
+                {
+                    // For ranged, also check if we have ammo
+                    if (item.useAmmo > 0 && !HasAmmoForWeapon(item))
+                        continue;
+
+                    if (item.damage > bestDamage)
+                    {
+                        bestDamage = item.damage;
+                        bestSlot = i;
+                    }
+                }
+                else if (!preferRanged && isMelee)
+                {
+                    if (item.damage > bestDamage)
+                    {
+                        bestDamage = item.damage;
+                        bestSlot = i;
+                    }
+                }
+                else if (bestSlot < 0)
+                {
+                    // Accept any weapon if we have none
+                    if (item.damage > bestDamage)
+                    {
+                        bestDamage = item.damage;
+                        bestSlot = i;
+                    }
+                }
+            }
+
+            return bestSlot;
+        }
+
+        /// <summary>
+        /// Checks if Terra has ammo for the specified weapon.
+        /// </summary>
+        /// <param name="weapon">The weapon item to check ammo for.</param>
+        /// <returns>True if ammo is available.</returns>
+        public bool HasAmmoForWeapon(Item weapon)
+        {
+            if (Inventory == null || weapon.useAmmo <= 0)
+                return true;
+
+            int ammoType = weapon.useAmmo;
+
+            for (int i = 0; i < InventorySize; i++)
+            {
+                Item item = Inventory[i];
+                if (!item.IsAir && item.ammo == ammoType && item.stack > 0)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// Gets the first available ammo slot for the specified weapon.
+        /// </summary>
+        /// <param name="weapon">The weapon item to find ammo for.</param>
+        /// <returns>The inventory slot index of ammo, or -1 if none found.</returns>
+        public int FindAmmoSlot(Item weapon)
+        {
+            if (Inventory == null || weapon.useAmmo <= 0)
+                return -1;
+
+            int ammoType = weapon.useAmmo;
+
+            for (int i = 0; i < InventorySize; i++)
+            {
+                Item item = Inventory[i];
+                if (!item.IsAir && item.ammo == ammoType && item.stack > 0)
+                {
+                    return i;
+                }
+            }
+
+            return -1;
+        }
+
+        /// <summary>
+        /// Gets the currently equipped weapon item.
+        /// </summary>
+        /// <returns>The equipped weapon Item, or null if none equipped.</returns>
+        public Item GetEquippedWeapon()
+        {
+            if (Inventory == null || EquippedWeaponSlot < 0 || EquippedWeaponSlot >= InventorySize)
+                return null;
+
+            return Inventory[EquippedWeaponSlot].IsAir ? null : Inventory[EquippedWeaponSlot];
         }
 
         #endregion
