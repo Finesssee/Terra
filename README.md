@@ -1,4 +1,4 @@
-<h1 align="center">Terra AI</h1>
+<h1 align="center">Terra </h1>
 
 <p align="center">
   <strong>AI-powered NPC companions for Terraria via tModLoader</strong>
