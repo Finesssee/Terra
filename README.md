@@ -8,7 +8,6 @@
   <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/License-MIT-28a745" alt="MIT License"></a>
   <a href="https://docs.microsoft.com/en-us/dotnet/csharp/"><img src="https://img.shields.io/badge/C%23-12.0-239120?logo=csharp" alt="C# Version"></a>
   <a href="https://github.com/tModLoader/tModLoader"><img src="https://img.shields.io/badge/tModLoader-1.4.4+-purple?logo=terraria" alt="tModLoader"></a>
-  <a href="https://x.com/Finessse377721"><img src="https://img.shields.io/badge/Follow-%F0%9D%95%8F%2F%40Finessse377721-1c9bf0" alt="Follow on 𝕏"></a>
   <a href="https://github.com/Finesssee/Terra"><img src="https://img.shields.io/github/stars/Finesssee/Terra.svg?style=social&label=Star%20this%20repo" alt="Star this repo"></a>
 </p>
 
