@@ -52,6 +52,11 @@ namespace TerraAIMod.UI
         public event EventHandler OnEnterPressed;
 
         /// <summary>
+        /// Event triggered when the Escape key is pressed while focused.
+        /// </summary>
+        public event EventHandler OnEscapePressed;
+
+        /// <summary>
         /// Creates a new InputField with optional hint text.
         /// </summary>
         /// <param name="hintText">The placeholder text shown when the field is empty.</param>
@@ -117,6 +122,13 @@ namespace TerraAIMod.UI
                     OnEnterPressed?.Invoke(this, EventArgs.Empty);
                 }
 
+                // Check for Escape key press to unfocus
+                if (Main.inputText.IsKeyDown(Keys.Escape) && !Main.oldInputText.IsKeyDown(Keys.Escape))
+                {
+                    Unfocus();
+                    OnEscapePressed?.Invoke(this, EventArgs.Empty);
+                }
+
                 // Cursor blink timer (toggle every 30 ticks)
                 cursorTimer++;
                 if (cursorTimer >= 30)
@@ -141,6 +153,40 @@ namespace TerraAIMod.UI
         {
             base.LeftClick(evt);
             Focus();
+        }
+
+        /// <summary>
+        /// Handles right click events (can also focus the input field).
+        /// </summary>
+        /// <param name="evt">The mouse event data.</param>
+        public override void RightClick(UIMouseEvent evt)
+        {
+            base.RightClick(evt);
+            Focus();
+        }
+
+        /// <summary>
+        /// Called when the mouse is outside this element and a click occurs.
+        /// Used to unfocus the input field when clicking elsewhere.
+        /// </summary>
+        /// <param name="evt">The mouse event data.</param>
+        public override void LeftMouseDown(UIMouseEvent evt)
+        {
+            base.LeftMouseDown(evt);
+            // If the click is on this element, we'll focus in LeftClick
+            // This handler is for when we need to track the source element
+        }
+
+        /// <summary>
+        /// Unfocuses the input field when clicking outside of it.
+        /// This should be called by the parent UI state when appropriate.
+        /// </summary>
+        public void TryUnfocus()
+        {
+            if (Focused && !ContainsPoint(Main.MouseScreen))
+            {
+                Unfocus();
+            }
         }
 
         /// <summary>
