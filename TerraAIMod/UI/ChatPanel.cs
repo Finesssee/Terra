@@ -373,9 +373,19 @@ namespace TerraAIMod.UI
         public void ScrollToBottom()
         {
             // Set scrollbar to maximum position
-            if (_scrollbar != null)
+            // We need to recalculate the list first to ensure proper scroll bounds
+            if (_messageList != null && _scrollbar != null)
             {
-                _scrollbar.ViewPosition = _scrollbar.MaxViewSize;
+                _messageList.Recalculate();
+
+                // The scrollbar's view position should be set to show the bottom content
+                // ViewPosition represents how far down we've scrolled
+                // We want to scroll to the end, so we need the total height minus visible height
+                float totalHeight = _messageList.GetTotalHeight();
+                float viewHeight = _messageList.GetInnerDimensions().Height;
+                float maxScroll = System.Math.Max(0f, totalHeight - viewHeight);
+
+                _scrollbar.ViewPosition = maxScroll;
             }
         }
 
