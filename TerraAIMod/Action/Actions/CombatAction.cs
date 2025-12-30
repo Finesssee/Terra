@@ -769,13 +769,13 @@ namespace TerraAIMod.Action.Actions
         private int GetProjectileType(Item ammoItem)
         {
             // If we have ammo, use its shoot property
-            if (ammoItem != null && ammoItem.shoot > 0)
+            if (ammoItem != null && ammoItem.shoot > ProjectileID.None)
             {
                 return ammoItem.shoot;
             }
 
             // If the weapon has a direct shoot property, use that
-            if (equippedWeapon != null && equippedWeapon.shoot > 0)
+            if (equippedWeapon != null && equippedWeapon.shoot > ProjectileID.None)
             {
                 return equippedWeapon.shoot;
             }
