@@ -1,31 +1,59 @@
-# Terra AI (tModLoader)
+# Terra AI
 
-AI companions for Terraria. Spawn Terra NPCs and give them natural language tasks like mining, building, combat, and following.
+> AI-powered NPC companions for Terraria via tModLoader
 
-> Status: early/experimental. Expect rough edges.
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![tModLoader](https://img.shields.io/badge/tModLoader-1.4.4+-purple.svg)](https://github.com/tModLoader/tModLoader)
+[![.NET](https://img.shields.io/badge/.NET-8.0-512BD4.svg)](https://dotnet.microsoft.com/)
+
+Spawn intelligent NPCs that understand natural language commands. Tell them to mine, build, fight, or follow you—powered by LLMs (Groq, OpenAI, Gemini).
+
+**Status:** Early/experimental. Expect rough edges.
+
+---
+
+## Table of Contents
+
+- [Features](#features)
+- [Requirements](#requirements)
+- [Quick Start](#quick-start)
+- [Commands](#commands)
+- [Configuration](#configuration)
+- [Installation](#installation)
+- [Project Structure](#project-structure)
+- [Troubleshooting](#troubleshooting)
+- [Contributing](#contributing)
+- [License](#license)
+
+---
 
 ## Features
 
-- Natural language commands via in-game chat (`/terra tell ...`)
-- Action planner + executor (mining, digging, building, combat, follow)
-- Multi-agent coordination for shared building tasks
-- Supports multiple LLM providers: **Groq**, **OpenAI**, **Gemini**
+- **Natural Language Commands** — Talk to NPCs using plain English via `/terra tell`
+- **Action System** — Mining, digging, building, combat, pathfinding, and follow behaviors
+- **Multi-Agent Coordination** — Multiple NPCs can collaborate on building tasks
+- **Multiple LLM Providers** — Choose between Groq, OpenAI, or Gemini
+- **In-Game UI** — Chat panel for real-time interaction
+- **Persistent Memory** — NPCs remember context and world knowledge
+
+---
 
 ## Requirements
 
-- Terraria with **tModLoader 1.4.4+**
-- **.NET 8 SDK** (only needed if building from source)
-- An API key for one provider:
-  - Groq
-  - OpenAI
-  - Gemini
+| Requirement | Notes |
+|-------------|-------|
+| Terraria + tModLoader | Version 1.4.4 or higher |
+| .NET 8 SDK | Only needed if building from source |
+| API Key | One of: Groq, OpenAI, or Gemini |
 
-## Quickstart
+---
 
-1. Install/enable the mod in tModLoader.
-2. Set your API key in tModLoader:
-   - **Settings** → **Mod Configuration** → `TerraAIMod`
-3. In a world, open chat and run:
+## Quick Start
+
+1. Install the mod in tModLoader
+2. Configure your API key:
+   **Settings → Mod Configuration → TerraAIMod**
+3. In-game, open chat and run:
 
 ```
 /terra spawn Bob
@@ -33,104 +61,203 @@ AI companions for Terraria. Spawn Terra NPCs and give them natural language task
 /terra tell Bob mine some copper
 ```
 
+---
+
 ## Commands
 
+| Command | Description |
+|---------|-------------|
+| `/terra spawn [name]` | Spawn a Terra NPC at your position |
+| `/terra tell <name> <command>` | Give a natural language command |
+| `/terra list` | List all active Terra NPCs |
+| `/terra stop <name>` | Stop current action |
+| `/terra remove <name>` | Remove a specific Terra NPC |
+| `/terra clear` | Remove all Terra NPCs |
+
+### Example Commands
+
 ```
-/terra spawn [name]           Spawn a Terra NPC at your position
-/terra tell <name> <command>  Give a natural language command
-/terra list                   List active Terras
-/terra stop <name>            Stop current action
-/terra remove <name>          Remove a specific Terra
-/terra clear                  Remove all Terras
+/terra tell Bob dig down 50 blocks
+/terra tell Bob build a small house here
+/terra tell Bob attack nearby slimes
+/terra tell Bob follow me and stay close
 ```
+
+---
 
 ## Configuration
 
-tModLoader: **Settings** → **Mod Configuration** → `TerraAIMod`.
+Access via **Settings → Mod Configuration → TerraAIMod**
 
-### Provider + API keys
+### Provider Settings
 
-- `AIProvider`: `groq`, `openai`, or `gemini`
-- `GroqApiKey`, `OpenAIApiKey`, `GeminiApiKey`: set the one matching `AIProvider`
+| Option | Values | Description |
+|--------|--------|-------------|
+| `AIProvider` | `groq`, `openai`, `gemini` | Which LLM provider to use |
+| `GroqApiKey` | string | API key for Groq |
+| `OpenAIApiKey` | string | API key for OpenAI |
+| `GeminiApiKey` | string | API key for Gemini |
 
-Notes:
-- Config is **client-side** (`ConfigScope.ClientSide`) so keys stay per-player.
-- Don’t commit keys to git.
+### Model Settings
 
-### Model/tuning
+| Option | Default | Description |
+|--------|---------|-------------|
+| `OpenAIModel` | `gpt-4-turbo-preview` | Model to use for OpenAI |
+| `MaxTokens` | varies | Maximum tokens per request |
+| `Temperature` | varies | Response randomness (0-1) |
 
-- `OpenAIModel`: e.g. `gpt-4-turbo-preview`, `gpt-4`, `gpt-3.5-turbo`
-- `MaxTokens`, `Temperature`
+### Behavior Settings
 
-### Behavior
+| Option | Description |
+|--------|-------------|
+| `ActionTickDelay` | Ticks between action updates |
+| `EnableChatResponses` | Toggle NPC chat responses |
+| `MaxActiveTerras` | Maximum concurrent NPCs |
 
-- `ActionTickDelay`: ticks between action updates
-- `EnableChatResponses`
-- `MaxActiveTerras`
+> **Note:** Config is client-side (`ConfigScope.ClientSide`). API keys are stored per-player and never synced to servers.
+
+---
 
 ## Installation
 
-### Option A: Build inside tModLoader (recommended)
+### Option A: tModLoader (Recommended)
 
-1. Clone this repo:
+1. Clone the repository:
+   ```bash
+   git clone https://github.com/Finesssee/Terra.git
+   ```
 
-```bash
-git clone https://github.com/Finesssee/Terra.git
-```
+2. Copy `TerraAIMod/` to your ModSources folder:
+   ```
+   Documents/My Games/Terraria/tModLoader/ModSources/TerraAIMod/
+   ```
 
-2. Copy `TerraAIMod/` into your tModLoader ModSources folder:
+3. In tModLoader:
+   **Workshop → Develop Mods → Build + Reload**
 
-- Windows default:
-  - `Documents/My Games/Terraria/tModLoader/ModSources/TerraAIMod/`
+### Option B: CLI Build
 
-3. Open tModLoader → **Workshop** → **Develop Mods** (or **Mod Sources**) → **Build + Reload**.
+Build with `dotnet` by setting `tMLPath` to your tModLoader install:
 
-### Option B: CLI build (`dotnet`)
-
-You can build directly with `dotnet` as long as `tMLPath` points to your tModLoader install (needed for Terraria/tModLoader references).
-
-Example (Windows, Steam):
-
-```bat
-set "tMLPath=D:\SteamLibrary\steamapps\common\tModLoader"
+**Windows (Steam):**
+```cmd
+set "tMLPath=C:\Program Files (x86)\Steam\steamapps\common\tModLoader"
 dotnet build TerraAIMod/TerraAIMod.csproj
 ```
 
-The output `.tmod` should end up in:
-- `Documents/My Games/Terraria/tModLoader/Mods/`
+**Linux/macOS:**
+```bash
+export tMLPath="$HOME/.steam/steam/steamapps/common/tModLoader"
+dotnet build TerraAIMod/TerraAIMod.csproj
+```
 
-## Development
+Output `.tmod` file goes to:
+```
+Documents/My Games/Terraria/tModLoader/Mods/
+```
 
-- Main mod source lives in `TerraAIMod/`.
-- If you see compile errors like `The type or namespace name 'Terraria' could not be found`, you’re missing `tMLPath` or building outside of tModLoader.
+---
 
-## Project Layout
+## Project Structure
 
 ```
 TerraAIMod/
-├── NPCs/            # TerraNPC entity
-├── Commands/        # /terra chat commands
-├── Systems/         # TerraManager, TerraSystem (tML hooks)
-├── Players/         # per-player state
-├── AI/              # LLM clients + prompt building
-├── Action/          # action executor + actions
-│   └── Actions/     # mine/build/combat/etc
-├── Memory/          # conversation + world knowledge
-├── Pathfinding/     # pathfinding
-├── UI/              # chat panel UI
-└── Config/          # ModConfig definitions
+├── TerraAIMod.cs          # Main mod entry point
+├── AI/                    # LLM clients and prompt building
+│   ├── ILLMClient.cs      # Provider interface
+│   ├── GroqClient.cs
+│   ├── OpenAIClient.cs
+│   ├── GeminiClient.cs
+│   ├── PromptBuilder.cs
+│   ├── ResponseParser.cs
+│   └── TaskPlanner.cs
+├── Action/                # Action execution system
+│   ├── ActionExecutor.cs
+│   ├── ActionResult.cs
+│   ├── Task.cs
+│   ├── CollaborativeBuildManager.cs
+│   └── Actions/           # Individual action implementations
+│       ├── BaseAction.cs
+│       ├── MineTileAction.cs
+│       ├── DigAction.cs
+│       ├── BuildStructureAction.cs
+│       ├── PlaceTileAction.cs
+│       ├── CombatAction.cs
+│       ├── FollowPlayerAction.cs
+│       ├── IdleFollowAction.cs
+│       └── PathfindAction.cs
+├── Commands/              # Chat command handlers
+│   └── TerraCommand.cs
+├── Config/                # Mod configuration
+│   └── TerraConfig.cs
+├── Memory/                # Context and world state
+│   ├── TerraMemory.cs
+│   └── WorldKnowledge.cs
+├── NPCs/                  # NPC entity definition
+│   └── TerraNPC.cs
+├── Pathfinding/           # Navigation system
+│   ├── TerrariaPathfinder.cs
+│   ├── PathExecutor.cs
+│   └── PathNode.cs
+├── Players/               # Per-player state
+│   └── TerraModPlayer.cs
+├── Systems/               # tModLoader system hooks
+│   ├── TerraSystem.cs
+│   └── TerraManager.cs
+└── UI/                    # In-game interface
+    ├── TerraUIState.cs
+    ├── ChatPanel.cs
+    └── InputField.cs
 ```
 
-## Ported From
+---
 
-Port of Steve AI for Minecraft: https://github.com/YuvDwi/Steve
+## Troubleshooting
+
+### "The type or namespace 'Terraria' could not be found"
+
+You're missing `tMLPath`. Set it to your tModLoader installation directory before building.
+
+### API key not working
+
+- Verify the key is correct and has available credits
+- Check that `AIProvider` matches the key you're using
+- Look at tModLoader logs for error details
+
+### NPC not responding to commands
+
+- Ensure you spelled the NPC name correctly
+- Check that the NPC is spawned with `/terra list`
+- Verify your API key is configured
+
+### Pathfinding issues
+
+- NPCs cannot path through solid blocks without mining
+- Complex terrain may cause navigation failures
+- Try giving simpler, more direct commands
+
+---
+
+## Contributing
+
+Contributions are welcome! Please:
+
+1. Fork the repository
+2. Create a feature branch (`git checkout -b feature/your-feature`)
+3. Commit your changes (`git commit -m 'Add your feature'`)
+4. Push to the branch (`git push origin feature/your-feature`)
+5. Open a Pull Request
+
+---
 
 ## License
 
-MIT
+[MIT](LICENSE)
+
+---
 
 ## Credits
 
-- Original Steve AI by YuvDwi
-- tModLoader team
-- OpenAI / Groq / Google (Gemini) APIs
+- Original concept: [Steve AI](https://github.com/YuvDwi/Steve) by YuvDwi
+- [tModLoader](https://github.com/tModLoader/tModLoader) team
+- LLM providers: OpenAI, Groq, Google (Gemini)
