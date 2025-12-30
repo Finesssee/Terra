@@ -1,15 +1,24 @@
-# Terra AI
+<h1 align="center">Terra AI</h1>
 
-> AI-powered NPC companions for Terraria via tModLoader
+<p align="center">
+  <strong>AI-powered NPC companions for Terraria via tModLoader</strong>
+</p>
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![tModLoader](https://img.shields.io/badge/tModLoader-1.4.4+-purple.svg)](https://github.com/tModLoader/tModLoader)
-[![.NET](https://img.shields.io/badge/.NET-8.0-512BD4.svg)](https://dotnet.microsoft.com/)
-[![C#](https://img.shields.io/badge/C%23-12.0-239120.svg)](https://docs.microsoft.com/en-us/dotnet/csharp/)
+<p align="center">
+  <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/License-MIT-28a745" alt="MIT License"></a>
+  <a href="https://docs.microsoft.com/en-us/dotnet/csharp/"><img src="https://img.shields.io/badge/C%23-12.0-239120?logo=csharp" alt="C# Version"></a>
+  <a href="https://github.com/tModLoader/tModLoader"><img src="https://img.shields.io/badge/tModLoader-1.4.4+-purple?logo=terraria" alt="tModLoader"></a>
+  <a href="https://x.com/Finessse377721"><img src="https://img.shields.io/badge/Follow-%F0%9D%95%8F%2F%40Finessse377721-1c9bf0" alt="Follow on 𝕏"></a>
+  <a href="https://github.com/Finesssee/Terra"><img src="https://img.shields.io/github/stars/Finesssee/Terra.svg?style=social&label=Star%20this%20repo" alt="Star this repo"></a>
+</p>
 
-Spawn intelligent NPCs that understand natural language commands. Tell them to mine, build, fight, or follow you—powered by LLMs (Groq, OpenAI, Gemini).
+<p align="center">
+  Spawn intelligent NPCs that understand natural language commands. Tell them to mine, build, fight, or follow you—powered by LLMs (Groq, OpenAI, Gemini).
+</p>
 
-**Status:** Early/experimental. Expect rough edges.
+<p align="center">
+  <strong>Status:</strong> Early/experimental. Expect rough edges.
+</p>
 
 ---
 
