@@ -348,7 +348,7 @@ namespace TerraAIMod.Action.Actions
             Tile wallTile = Main.tile[torchX, torchY];
 
             // Only place if there's a wall to attach to and no tile blocking
-            if (wallTile.WallType > 0 && !wallTile.HasTile)
+            if (wallTile.WallType > WallID.None && !wallTile.HasTile)
             {
                 // Place a torch
                 WorldGen.PlaceTile(torchX, torchY, TileID.Torches, false, false, -1, 0);
@@ -361,7 +361,7 @@ namespace TerraAIMod.Action.Actions
             else
             {
                 // Try placing in the shaft itself on the wall
-                if (!Main.tile[currentTarget.X, torchY].HasTile && Main.tile[currentTarget.X, torchY].WallType > 0)
+                if (!Main.tile[currentTarget.X, torchY].HasTile && Main.tile[currentTarget.X, torchY].WallType > WallID.None)
                 {
                     WorldGen.PlaceTile(currentTarget.X, torchY, TileID.Torches, false, false, -1, 0);
 
