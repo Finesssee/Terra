@@ -107,6 +107,12 @@ namespace TerraAIMod.Systems
             if (TerraInterface?.CurrentState != null)
             {
                 TerraInterface.Update(gameTime);
+
+                // If the panel is closed and animation is complete, clear the state
+                if (!IsOpen && TerraUI != null && TerraUI.IsAnimationComplete && !TerraUI.IsVisible)
+                {
+                    TerraInterface.SetState(null);
+                }
             }
         }
 
@@ -126,7 +132,9 @@ namespace TerraAIMod.Systems
                     "TerraAIMod: Terra UI",
                     delegate
                     {
-                        if (IsOpen && TerraInterface?.CurrentState != null)
+                        // Draw if open, OR if still animating out (panel visible)
+                        if (TerraInterface?.CurrentState != null &&
+                            (IsOpen || (TerraUI != null && TerraUI.IsVisible)))
                         {
                             TerraInterface.Draw(Main.spriteBatch, new GameTime());
                         }
@@ -157,7 +165,39 @@ namespace TerraAIMod.Systems
             else
             {
                 TerraUI?.OnClose();
-                TerraInterface.SetState(null);
+                // Don't set state to null immediately - let the animation complete
+                // The ModifyInterfaceLayers will handle visibility based on IsOpen flag
+            }
+        }
+
+        /// <summary>
+        /// Opens the Terra UI panel.
+        /// </summary>
+        public static void Open()
+        {
+            if (TerraInterface == null || TerraUI == null)
+                return;
+
+            if (!IsOpen)
+            {
+                IsOpen = true;
+                TerraInterface.SetState(TerraUI);
+                TerraUI?.OnOpen();
+            }
+        }
+
+        /// <summary>
+        /// Closes the Terra UI panel.
+        /// </summary>
+        public static void Close()
+        {
+            if (TerraInterface == null || TerraUI == null)
+                return;
+
+            if (IsOpen)
+            {
+                IsOpen = false;
+                TerraUI?.OnClose();
             }
         }
 
