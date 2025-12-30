@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using Microsoft.Xna.Framework;
 using Terraria;
 using TerraAIMod.NPCs;
@@ -9,7 +10,8 @@ namespace TerraAIMod.Action.Actions
     /// <summary>
     /// Default idle behavior when Terra has no other tasks.
     /// Follows the nearest player at a comfortable distance.
-    /// Uses lightweight simple movement rather than full A* pathfinding.
+    /// Uses lightweight simple movement for basic scenarios and falls back to A* pathfinding
+    /// when complex terrain (gaps, vertical differences, obstacles) is detected.
     /// </summary>
     public class IdleFollowAction : BaseAction
     {
@@ -31,6 +33,16 @@ namespace TerraAIMod.Action.Actions
         private const float IdleDistance = 2.5f;
 
         /// <summary>
+        /// Distance in tiles at which pathfinding should be used instead of simple movement.
+        /// </summary>
+        private const float PathfindingDistance = 10f;
+
+        /// <summary>
+        /// Vertical difference in tiles beyond which pathfinding is required.
+        /// </summary>
+        private const float VerticalDifferenceThreshold = 3f;
+
+        /// <summary>
         /// Tile size in pixels.
         /// </summary>
         private const float TileSize = 16f;
@@ -44,6 +56,16 @@ namespace TerraAIMod.Action.Actions
         /// Jump velocity when blocked.
         /// </summary>
         private const float JumpVelocity = -5.1f;
+
+        /// <summary>
+        /// Number of ticks between path recalculations.
+        /// </summary>
+        private const int RepathIntervalTicks = 90;
+
+        /// <summary>
+        /// Number of ticks to consider being stuck before switching to pathfinding.
+        /// </summary>
+        private const int StuckThreshold = 30;
 
         #endregion
 
@@ -70,14 +92,34 @@ namespace TerraAIMod.Action.Actions
         private int lastSearchTick;
 
         /// <summary>
-        /// Reference to pathfinder (kept for potential future use, but not used for simple movement).
+        /// Reference to pathfinder for complex terrain navigation.
         /// </summary>
         private TerrariaPathfinder pathfinder;
 
         /// <summary>
-        /// Reference to path executor (kept for potential future use, but not used for simple movement).
+        /// Reference to path executor for following calculated paths.
         /// </summary>
         private PathExecutor pathExecutor;
+
+        /// <summary>
+        /// Whether we are currently using pathfinding instead of simple movement.
+        /// </summary>
+        private bool usePathfinding;
+
+        /// <summary>
+        /// Tick count when the last path was calculated.
+        /// </summary>
+        private int lastPathTime;
+
+        /// <summary>
+        /// Last recorded position for stuck detection.
+        /// </summary>
+        private Vector2 lastPosition;
+
+        /// <summary>
+        /// Number of ticks the NPC has been stuck.
+        /// </summary>
+        private int stuckTicks;
 
         #endregion
 
@@ -112,11 +154,15 @@ namespace TerraAIMod.Action.Actions
         {
             ticksRunning = 0;
             lastSearchTick = 0;
+            lastPathTime = -RepathIntervalTicks; // Force immediate pathfinding if needed
+            usePathfinding = false;
+            stuckTicks = 0;
+            lastPosition = terra.NPC.position;
 
             // Find the nearest player
             targetPlayer = FindNearestPlayer();
 
-            // Initialize pathfinder and executor for potential future use
+            // Initialize pathfinder and executor for complex terrain navigation
             pathfinder = new TerrariaPathfinder(terra.NPC);
             pathExecutor = new PathExecutor(terra.NPC);
         }
@@ -146,34 +192,212 @@ namespace TerraAIMod.Action.Actions
             float distancePixels = Vector2.Distance(terra.NPC.Center, targetPlayer.Center);
             float distanceTiles = distancePixels / TileSize;
 
+            // Calculate vertical difference in tiles
+            float verticalDifference = Math.Abs(targetPlayer.Center.Y - terra.NPC.Center.Y) / TileSize;
+
             // Update facing direction to look at player
             LookAtPlayer();
+
+            // Detect if stuck (position hasn't changed significantly)
+            float distanceMoved = Vector2.Distance(terra.NPC.position, lastPosition);
+            if (distanceMoved < 0.5f && distanceTiles > FollowDistance)
+            {
+                stuckTicks++;
+            }
+            else
+            {
+                stuckTicks = 0;
+            }
+            lastPosition = terra.NPC.position;
+
+            // Determine if we should use pathfinding
+            bool needsPathfinding = ShouldUsePathfinding(distanceTiles, verticalDifference);
 
             // Determine behavior based on distance
             if (distanceTiles > TeleportDistance)
             {
                 // Player moved too far - teleport near them
                 TeleportNearPlayer();
+                usePathfinding = false;
+                pathExecutor.ClearPath();
             }
             else if (distanceTiles > FollowDistance)
             {
-                // Walk toward player
-                WalkTowardPlayer();
+                if (needsPathfinding || usePathfinding)
+                {
+                    // Use A* pathfinding for complex terrain
+                    FollowWithPathfinding();
+                }
+                else
+                {
+                    // Simple walk toward player
+                    WalkTowardPlayer();
+                }
             }
             else if (distanceTiles < IdleDistance)
             {
                 // Stop moving and face player
                 StopMoving();
+                usePathfinding = false;
+                pathExecutor.ClearPath();
             }
-            // Between IdleDistance and FollowDistance: do nothing special, just maintain position
+            else
+            {
+                // Between IdleDistance and FollowDistance: gradual slowdown
+                terra.NPC.velocity.X *= 0.95f;
+                if (Math.Abs(terra.NPC.velocity.X) < 0.1f)
+                {
+                    terra.NPC.velocity.X = 0;
+                }
+            }
         }
 
         /// <summary>
-        /// Called when the action is cancelled. Stops all movement.
+        /// Determines if pathfinding should be used instead of simple movement.
+        /// </summary>
+        /// <param name="distanceTiles">Distance to player in tiles.</param>
+        /// <param name="verticalDifference">Vertical difference in tiles.</param>
+        /// <returns>True if pathfinding is needed.</returns>
+        private bool ShouldUsePathfinding(float distanceTiles, float verticalDifference)
+        {
+            // Use pathfinding if:
+            // 1. Distance is beyond simple movement threshold
+            if (distanceTiles > PathfindingDistance)
+                return true;
+
+            // 2. Significant vertical difference (player is above or below us)
+            if (verticalDifference > VerticalDifferenceThreshold)
+                return true;
+
+            // 3. We've been stuck for too long
+            if (stuckTicks >= StuckThreshold)
+                return true;
+
+            // 4. There's a gap in front of us that we can't simply jump over
+            if (HasGapAhead() && !CanJumpGap())
+                return true;
+
+            return false;
+        }
+
+        /// <summary>
+        /// Uses A* pathfinding to follow the player through complex terrain.
+        /// </summary>
+        private void FollowWithPathfinding()
+        {
+            usePathfinding = true;
+
+            // Check if we need to recalculate the path
+            if (ticksRunning - lastPathTime >= RepathIntervalTicks || pathExecutor.IsComplete || pathExecutor.IsStuck)
+            {
+                CalculatePathToPlayer();
+                lastPathTime = ticksRunning;
+            }
+
+            // Execute the current path
+            if (!pathExecutor.IsComplete)
+            {
+                pathExecutor.Tick();
+            }
+            else
+            {
+                // Path complete, switch back to simple movement if close enough
+                usePathfinding = false;
+            }
+        }
+
+        /// <summary>
+        /// Calculates a new path from Terra's current position to the target player.
+        /// </summary>
+        private void CalculatePathToPlayer()
+        {
+            if (targetPlayer == null || pathfinder == null)
+                return;
+
+            // Get tile coordinates
+            int startX = (int)(terra.NPC.Center.X / TileSize);
+            int startY = (int)(terra.NPC.Center.Y / TileSize);
+            int goalX = (int)(targetPlayer.Center.X / TileSize);
+            int goalY = (int)(targetPlayer.Center.Y / TileSize);
+
+            // Calculate path
+            List<PathNode> path = pathfinder.FindPath(startX, startY, goalX, goalY);
+
+            if (path != null && path.Count > 0)
+            {
+                pathExecutor.SetPath(path);
+                stuckTicks = 0; // Reset stuck counter on successful pathfinding
+            }
+            else
+            {
+                // No path found, try simple movement as fallback
+                usePathfinding = false;
+                WalkTowardPlayer();
+            }
+        }
+
+        /// <summary>
+        /// Checks if there's a gap (no ground) directly ahead of Terra.
+        /// </summary>
+        /// <returns>True if there's a gap ahead.</returns>
+        private bool HasGapAhead()
+        {
+            int direction = terra.NPC.direction;
+            int tileX = (int)((terra.NPC.Center.X + direction * (terra.NPC.width / 2f + 16)) / TileSize);
+            int tileY = (int)((terra.NPC.position.Y + terra.NPC.height) / TileSize);
+
+            // Check if there's no ground at feet level ahead
+            if (tileX < 0 || tileX >= Main.maxTilesX || tileY < 0 || tileY >= Main.maxTilesY)
+                return true;
+
+            // Check a few tiles below for ground
+            for (int checkY = tileY; checkY < tileY + 4 && checkY < Main.maxTilesY; checkY++)
+            {
+                Tile tile = Main.tile[tileX, checkY];
+                if (tile.HasTile && Main.tileSolid[tile.TileType])
+                {
+                    return false; // Found ground, no gap
+                }
+            }
+
+            return true; // No ground found, there's a gap
+        }
+
+        /// <summary>
+        /// Checks if Terra can jump over a gap ahead.
+        /// </summary>
+        /// <returns>True if the gap can be jumped.</returns>
+        private bool CanJumpGap()
+        {
+            int direction = terra.NPC.direction;
+
+            // Check for ground within jump distance (about 4 tiles horizontal)
+            for (int jumpDistance = 2; jumpDistance <= 4; jumpDistance++)
+            {
+                int tileX = (int)((terra.NPC.Center.X + direction * (terra.NPC.width / 2f + jumpDistance * TileSize)) / TileSize);
+                int tileY = (int)((terra.NPC.position.Y + terra.NPC.height) / TileSize);
+
+                if (tileX < 0 || tileX >= Main.maxTilesX || tileY < 0 || tileY >= Main.maxTilesY)
+                    continue;
+
+                Tile tile = Main.tile[tileX, tileY];
+                if (tile.HasTile && Main.tileSolid[tile.TileType])
+                {
+                    return true; // Ground within jump range
+                }
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// Called when the action is cancelled. Stops all movement and clears pathfinding.
         /// </summary>
         protected override void OnCancel()
         {
             StopMoving();
+            usePathfinding = false;
+            pathExecutor?.ClearPath();
         }
 
         #endregion
