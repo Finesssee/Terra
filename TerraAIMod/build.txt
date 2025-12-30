@@ -1,0 +1,10 @@
+name = TerraAIMod
+displayName = Terra AI
+author = TerraAI Team
+version = 1.0.0
+side = Both
+homepage = https://github.com/TerraAI/TerraAIMod
+buildIgnore = *.csproj, *.user, obj\*, bin\*, .vs\*, .git\*, .gitignore
+includeSource = false
+sortAfter =
+sortBefore =

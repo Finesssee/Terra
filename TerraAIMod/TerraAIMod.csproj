@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <AssemblyName>TerraAIMod</AssemblyName>
+    <TargetFramework>net8.0</TargetFramework>
+    <PlatformTarget>AnyCPU</PlatformTarget>
+    <LangVersion>latest</LangVersion>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Nullable>disable</Nullable>
+    <RootNamespace>TerraAIMod</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="tModLoader.CodeAssist" Version="0.1.*" />
+  </ItemGroup>
+
+  <Target Name="BuildMod" AfterTargets="Build">
+    <!-- tModLoader will handle the actual mod building process -->
+  </Target>
+
+  <!-- Reference tModLoader assemblies -->
+  <PropertyGroup>
+    <tMLPath Condition="'$(tMLPath)' == ''">D:\SteamLibrary\steamapps\common\tModLoader</tMLPath>
+  </PropertyGroup>
+  <Import Project="$(tMLPath)\tMLMod.targets" Condition="Exists('$(tMLPath)\tMLMod.targets')" />
+
+</Project>

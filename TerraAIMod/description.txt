@@ -1,0 +1,13 @@
+Terra AI - Your Intelligent Terraria Companion
+
+Terra AI brings artificial intelligence to Terraria, providing smart assistance and automation to enhance your gameplay experience.
+
+Features:
+- AI-powered game assistance
+- Intelligent automation tools
+- Smart resource management
+- Enhanced gameplay insights
+
+Compatible with tModLoader 1.4.4 and Terraria 1.4.4.9
+
+For support and updates, visit our GitHub repository.
