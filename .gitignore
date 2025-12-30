@@ -4,6 +4,8 @@ brain.md
 build/
 .gradle/
 bin/
+obj/
+.vs/
 
 # IDE
 .idea/
