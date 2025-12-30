@@ -1,6 +1,7 @@
 using System.Linq;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
+using Microsoft.Xna.Framework.Input;
 using Terraria;
 using Terraria.GameContent.UI.Elements;
 using Terraria.UI;
@@ -64,6 +65,11 @@ namespace TerraAIMod.UI
         /// Current X position during animation.
         /// </summary>
         private float currentX;
+
+        /// <summary>
+        /// Tracks if Escape key was pressed last frame (for edge detection).
+        /// </summary>
+        private bool wasEscapePressed;
 
         #endregion
 
@@ -141,6 +147,7 @@ namespace TerraAIMod.UI
             inputField.Top.Set(5f, 0f);
             inputField.Left.Set(0f, 0f);
             inputField.OnEnterPressed += (sender, args) => SendCommand();
+            inputField.OnEscapePressed += (sender, args) => TerraSystem.Close();
             inputAreaPanel.Append(inputField);
 
             // Create send button
@@ -195,6 +202,16 @@ namespace TerraAIMod.UI
         }
 
         /// <summary>
+        /// Gets whether the panel animation is complete (fully open or fully closed).
+        /// </summary>
+        public bool IsAnimationComplete => System.Math.Abs(currentX - targetX) < 0.5f;
+
+        /// <summary>
+        /// Gets whether the panel is currently visible (not fully off-screen).
+        /// </summary>
+        public bool IsVisible => currentX < PANEL_WIDTH - 1f;
+
+        /// <summary>
         /// Updates the UI state each frame, handling animation and input focus.
         /// </summary>
         /// <param name="gameTime">Provides a snapshot of timing values.</param>
@@ -214,11 +231,36 @@ namespace TerraAIMod.UI
                 mainPanel.Left.Set(currentX, 0f);
             }
 
-            // Set mouseInterface to prevent game input while input field is focused
+            // Block game input when mouse is over the panel or input field is focused
+            if (IsVisible && mainPanel != null)
+            {
+                // Check if mouse is over the main panel
+                if (mainPanel.ContainsPoint(Main.MouseScreen))
+                {
+                    Main.LocalPlayer.mouseInterface = true;
+                }
+            }
+
+            // Also block when input field is focused (regardless of mouse position)
             if (inputField != null && inputField.Focused)
             {
                 Main.LocalPlayer.mouseInterface = true;
             }
+
+            // Handle click outside input field to unfocus
+            if (inputField != null && inputField.Focused && Main.mouseLeft && Main.mouseLeftRelease)
+            {
+                inputField.TryUnfocus();
+            }
+
+            // Handle Escape key to close the UI (when input field is not focused)
+            // When input field IS focused, the InputField's OnEscapePressed event handles it
+            bool isEscapePressed = Main.keyState.IsKeyDown(Keys.Escape);
+            if (isEscapePressed && !wasEscapePressed && (inputField == null || !inputField.Focused))
+            {
+                TerraSystem.Close();
+            }
+            wasEscapePressed = isEscapePressed;
         }
 
         #endregion
