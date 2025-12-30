@@ -497,11 +497,9 @@ namespace TerraAIMod.Action
         /// </summary>
         /// <param name="command">The command to plan tasks for.</param>
         /// <returns>A TaskPlanResponse containing the plan and tasks.</returns>
-        public async System.Threading.Tasks.Task<TaskPlanResponse> PlanTasksAsync(string command)
+        public System.Threading.Tasks.Task<TaskPlanResponse> PlanTasksAsync(string command)
         {
-            // TODO: Implement AI-driven task planning using ILLMClient
-            // For now, return a simple response based on keyword matching
-
+            // Simple keyword-based task planning (no async needed)
             var response = new TaskPlanResponse();
             var tasks = new List<Task>();
 
@@ -554,7 +552,7 @@ namespace TerraAIMod.Action
             }
 
             response.Tasks = tasks;
-            return response;
+            return System.Threading.Tasks.Task.FromResult(response);
         }
     }
 
