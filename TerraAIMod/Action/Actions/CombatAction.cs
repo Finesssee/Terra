@@ -4,6 +4,7 @@ using Microsoft.Xna.Framework;
 using Terraria;
 using Terraria.ID;
 using Terraria.DataStructures;
+using Terraria.ModLoader;
 using TerraAIMod.NPCs;
 using TerraAIMod.Pathfinding;
 
@@ -105,14 +106,24 @@ namespace TerraAIMod.Action.Actions
         private int attackCooldown;
 
         /// <summary>
-        /// The type of weapon currently equipped.
+        /// The equipped weapon item reference.
         /// </summary>
-        private int weaponType;
+        private Item equippedWeapon;
+
+        /// <summary>
+        /// The inventory slot of the equipped weapon.
+        /// </summary>
+        private int equippedWeaponSlot;
 
         /// <summary>
         /// Whether the current weapon uses ammo.
         /// </summary>
         private bool usesAmmo;
+
+        /// <summary>
+        /// The ammo type required by the current weapon.
+        /// </summary>
+        private int ammoType;
 
         /// <summary>
         /// Pathfinder for navigation.
@@ -123,6 +134,31 @@ namespace TerraAIMod.Action.Actions
         /// Path executor for following computed paths.
         /// </summary>
         private PathExecutor pathExecutor;
+
+        /// <summary>
+        /// Number of kills during this combat action.
+        /// </summary>
+        private int killCount;
+
+        /// <summary>
+        /// Target kill count to complete the action (0 = no limit).
+        /// </summary>
+        private int targetKillCount;
+
+        /// <summary>
+        /// Maximum ticks before timeout (0 = no timeout).
+        /// </summary>
+        private int maxTicks;
+
+        /// <summary>
+        /// Ticks spent in searching state without finding a target.
+        /// </summary>
+        private int searchingTicks;
+
+        /// <summary>
+        /// Maximum ticks to search before giving up.
+        /// </summary>
+        private const int MaxSearchingTicks = 600; // 10 seconds at 60 fps
 
         #endregion
 
@@ -149,12 +185,20 @@ namespace TerraAIMod.Action.Actions
             // Get target type from parameters
             targetType = task.GetParameter<string>("target", "hostile");
 
+            // Get kill target count (0 = continuous combat)
+            targetKillCount = task.GetParameter<int>("killCount", 0);
+
+            // Get timeout (0 = no timeout, in seconds)
+            int timeoutSeconds = task.GetParameter<int>("timeout", 0);
+            maxTicks = timeoutSeconds * 60; // Convert to ticks
+
             // Initialize pathfinder and executor
             pathfinder = new TerrariaPathfinder(terra.NPC);
             pathExecutor = new PathExecutor(terra.NPC);
 
             // Equip the best available weapon
-            EquipBestWeapon();
+            bool preferRanged = task.GetParameter<bool>("preferRanged", false);
+            EquipBestWeapon(preferRanged);
 
             // Find initial target
             targetNPC = FindTarget();
@@ -171,6 +215,8 @@ namespace TerraAIMod.Action.Actions
 
             ticksRunning = 0;
             attackCooldown = 0;
+            killCount = 0;
+            searchingTicks = 0;
         }
 
         /// <summary>
@@ -179,6 +225,20 @@ namespace TerraAIMod.Action.Actions
         protected override void OnTick()
         {
             ticksRunning++;
+
+            // Check for timeout
+            if (maxTicks > 0 && ticksRunning >= maxTicks)
+            {
+                result = ActionResult.Succeed($"Combat timed out after {ticksRunning / 60} seconds. Killed {killCount} enemies.");
+                return;
+            }
+
+            // Check if we've reached kill target
+            if (targetKillCount > 0 && killCount >= targetKillCount)
+            {
+                result = ActionResult.Succeed($"Combat complete! Killed {killCount} enemies.");
+                return;
+            }
 
             // Decrement attack cooldown
             if (attackCooldown > 0)
@@ -194,13 +254,21 @@ namespace TerraAIMod.Action.Actions
                 pathExecutor.ClearPath();
             }
 
-            // Validate current target
+            // Validate current target and check for kills
             if (targetNPC != null && !IsValidTarget(targetNPC))
             {
+                // Check if target died (kill confirmation)
+                if (!targetNPC.active || targetNPC.life <= 0)
+                {
+                    killCount++;
+                    terra.SendChatMessage($"Defeated {targetNPC.GivenOrTypeName}! ({killCount} kills)");
+                }
+
                 targetNPC = null;
                 if (state == CombatState.Attacking || state == CombatState.Approaching)
                 {
                     state = CombatState.Searching;
+                    searchingTicks = 0;
                 }
             }
 
@@ -245,6 +313,23 @@ namespace TerraAIMod.Action.Actions
         /// </summary>
         private void HandleSearching()
         {
+            searchingTicks++;
+
+            // Check search timeout
+            if (searchingTicks >= MaxSearchingTicks)
+            {
+                // If we have kills, succeed; otherwise fail
+                if (killCount > 0)
+                {
+                    result = ActionResult.Succeed($"No more targets found. Killed {killCount} enemies.");
+                }
+                else
+                {
+                    result = ActionResult.Fail($"No {targetType} targets found after searching for {MaxSearchingTicks / 60} seconds.");
+                }
+                return;
+            }
+
             // Periodically search for targets
             if (ticksRunning % SearchInterval == 0)
             {
@@ -253,6 +338,7 @@ namespace TerraAIMod.Action.Actions
                 if (targetNPC != null)
                 {
                     state = CombatState.Approaching;
+                    searchingTicks = 0;
                     return;
                 }
             }
@@ -359,11 +445,24 @@ namespace TerraAIMod.Action.Actions
                 return;
             }
 
+            // Check ammo for ranged weapons
+            if (IsRangedWeapon() && usesAmmo && !terra.HasAmmoForWeapon(equippedWeapon))
+            {
+                // Try to switch to melee weapon
+                EquipBestWeapon(false);
+                if (equippedWeapon == null)
+                {
+                    result = ActionResult.Fail("Out of ammo and no melee weapon available.");
+                    return;
+                }
+            }
+
             // Perform attack when cooldown is ready
             if (attackCooldown <= 0)
             {
                 PerformAttack();
-                attackCooldown = DefaultAttackCooldown;
+                // Set cooldown based on weapon use time
+                attackCooldown = equippedWeapon != null ? equippedWeapon.useTime : DefaultAttackCooldown;
             }
         }
 
@@ -442,60 +541,96 @@ namespace TerraAIMod.Action.Actions
         /// </summary>
         private void PerformAttack()
         {
-            if (targetNPC == null)
+            if (targetNPC == null || equippedWeapon == null)
                 return;
 
             if (IsRangedWeapon())
             {
-                // Ranged attack - spawn projectile
-                Vector2 direction = targetNPC.Center - terra.NPC.Center;
-                direction.Normalize();
-
-                int projectileType = GetProjectileType();
-                float speed = 10f;
-                int damage = GetWeaponDamage();
-                float knockback = GetWeaponKnockback();
-
-                // Spawn the projectile
-                Projectile.NewProjectile(
-                    terra.NPC.GetSource_FromAI(),
-                    terra.NPC.Center,
-                    direction * speed,
-                    projectileType,
-                    damage,
-                    knockback,
-                    Main.myPlayer
-                );
-
-                // Consume ammo if applicable
-                if (usesAmmo)
-                {
-                    ConsumeAmmo();
-                }
+                PerformRangedAttack();
             }
             else
             {
-                // Melee attack - check hitbox intersection
-                Rectangle meleeHitbox = GetMeleeHitbox();
-                Rectangle targetHitbox = targetNPC.Hitbox;
+                PerformMeleeAttack();
+            }
+        }
 
-                if (meleeHitbox.Intersects(targetHitbox))
+        /// <summary>
+        /// Performs a ranged attack on the current target.
+        /// </summary>
+        private void PerformRangedAttack()
+        {
+            // Get the projectile type and stats from ammo
+            int ammoSlot = terra.FindAmmoSlot(equippedWeapon);
+            if (ammoSlot < 0 && usesAmmo)
+            {
+                // No ammo available
+                return;
+            }
+
+            Item ammoItem = usesAmmo ? terra.Inventory[ammoSlot] : null;
+
+            // Calculate direction with slight accuracy variance
+            Vector2 direction = targetNPC.Center - terra.NPC.Center;
+            direction.Normalize();
+
+            // Add slight randomness for realism
+            float accuracy = 0.05f;
+            direction.X += Main.rand.NextFloat(-accuracy, accuracy);
+            direction.Y += Main.rand.NextFloat(-accuracy, accuracy);
+            direction.Normalize();
+
+            // Get projectile type from ammo or weapon
+            int projectileType = GetProjectileType(ammoItem);
+            float speed = equippedWeapon.shootSpeed > 0 ? equippedWeapon.shootSpeed : 10f;
+            int damage = GetWeaponDamage();
+            float knockback = GetWeaponKnockback();
+
+            // Spawn the projectile
+            Projectile.NewProjectile(
+                terra.NPC.GetSource_FromAI(),
+                terra.NPC.Center,
+                direction * speed,
+                projectileType,
+                damage,
+                knockback,
+                Main.myPlayer
+            );
+
+            // Consume ammo if applicable
+            if (usesAmmo && ammoItem != null)
+            {
+                ConsumeAmmo(ammoSlot);
+            }
+        }
+
+        /// <summary>
+        /// Performs a melee attack on the current target.
+        /// </summary>
+        private void PerformMeleeAttack()
+        {
+            // Melee attack - check hitbox intersection
+            Rectangle meleeHitbox = GetMeleeHitbox();
+            Rectangle targetHitbox = targetNPC.Hitbox;
+
+            if (meleeHitbox.Intersects(targetHitbox))
+            {
+                int damage = GetWeaponDamage();
+                float knockback = GetWeaponKnockback();
+                int hitDirection = terra.NPC.direction;
+
+                // Calculate crit chance from weapon
+                int critChance = equippedWeapon != null ? equippedWeapon.crit + 4 : 10; // Base 4% + item crit
+
+                // Strike the target NPC
+                NPC.HitInfo hitInfo = new NPC.HitInfo
                 {
-                    int damage = GetWeaponDamage();
-                    float knockback = GetWeaponKnockback();
-                    int hitDirection = terra.NPC.direction;
+                    Damage = damage,
+                    Knockback = knockback,
+                    HitDirection = hitDirection,
+                    Crit = Main.rand.Next(100) < critChance
+                };
 
-                    // Strike the target NPC
-                    NPC.HitInfo hitInfo = new NPC.HitInfo
-                    {
-                        Damage = damage,
-                        Knockback = knockback,
-                        HitDirection = hitDirection,
-                        Crit = Main.rand.Next(100) < 10 // 10% crit chance
-                    };
-
-                    targetNPC.StrikeNPC(hitInfo);
-                }
+                targetNPC.StrikeNPC(hitInfo);
             }
         }
 
@@ -619,71 +754,34 @@ namespace TerraAIMod.Action.Actions
         /// <returns>True if the weapon is ranged.</returns>
         private bool IsRangedWeapon()
         {
-            // Check common ranged weapon types
-            if (weaponType == ItemID.WoodenBow ||
-                weaponType == ItemID.CopperBow ||
-                weaponType == ItemID.IronBow ||
-                weaponType == ItemID.SilverBow ||
-                weaponType == ItemID.GoldBow ||
-                weaponType == ItemID.DemonBow ||
-                weaponType == ItemID.TendonBow ||
-                weaponType == ItemID.MoltenFury ||
-                weaponType == ItemID.Musket ||
-                weaponType == ItemID.TheUndertaker ||
-                weaponType == ItemID.Minishark ||
-                weaponType == ItemID.Handgun ||
-                weaponType == ItemID.PhoenixBlaster ||
-                weaponType == ItemID.StarCannon ||
-                weaponType == ItemID.Megashark ||
-                weaponType == ItemID.SniperRifle)
-            {
-                return true;
-            }
+            if (equippedWeapon == null)
+                return false;
 
-            return false;
+            // Use the game's damage class system
+            return equippedWeapon.CountsAsClass(DamageClass.Ranged);
         }
 
         /// <summary>
         /// Gets the projectile type for the current weapon.
         /// </summary>
+        /// <param name="ammoItem">The ammo item being used (can be null).</param>
         /// <returns>The projectile ID to spawn.</returns>
-        private int GetProjectileType()
+        private int GetProjectileType(Item ammoItem)
         {
-            // Map common weapons to their projectiles
-            switch (weaponType)
+            // If we have ammo, use its shoot property
+            if (ammoItem != null && ammoItem.shoot > 0)
             {
-                case ItemID.WoodenBow:
-                case ItemID.CopperBow:
-                case ItemID.IronBow:
-                case ItemID.SilverBow:
-                case ItemID.GoldBow:
-                case ItemID.DemonBow:
-                case ItemID.TendonBow:
-                    return ProjectileID.WoodenArrowFriendly;
-
-                case ItemID.MoltenFury:
-                    return ProjectileID.FireArrow;
-
-                case ItemID.Musket:
-                case ItemID.TheUndertaker:
-                case ItemID.Handgun:
-                case ItemID.PhoenixBlaster:
-                    return ProjectileID.Bullet;
-
-                case ItemID.Minishark:
-                case ItemID.Megashark:
-                    return ProjectileID.Bullet;
-
-                case ItemID.StarCannon:
-                    return ProjectileID.FallingStar;
-
-                case ItemID.SniperRifle:
-                    return ProjectileID.BulletHighVelocity;
-
-                default:
-                    // Default to wooden arrow
-                    return ProjectileID.WoodenArrowFriendly;
+                return ammoItem.shoot;
             }
+
+            // If the weapon has a direct shoot property, use that
+            if (equippedWeapon != null && equippedWeapon.shoot > 0)
+            {
+                return equippedWeapon.shoot;
+            }
+
+            // Default to wooden arrow for bows
+            return ProjectileID.WoodenArrowFriendly;
         }
 
         /// <summary>
@@ -692,44 +790,10 @@ namespace TerraAIMod.Action.Actions
         /// <returns>The weapon damage value.</returns>
         private int GetWeaponDamage()
         {
-            // Return base damage values for common weapons
-            switch (weaponType)
-            {
-                case ItemID.CopperShortsword:
-                    return 5;
-                case ItemID.IronShortsword:
-                    return 8;
-                case ItemID.SilverShortsword:
-                    return 9;
-                case ItemID.GoldShortsword:
-                    return 11;
-                case ItemID.WoodenSword:
-                    return 7;
-                case ItemID.CopperBroadsword:
-                    return 8;
-                case ItemID.IronBroadsword:
-                    return 10;
-                case ItemID.SilverBroadsword:
-                    return 11;
-                case ItemID.GoldBroadsword:
-                    return 13;
-                case ItemID.WoodenBow:
-                    return 4;
-                case ItemID.CopperBow:
-                    return 6;
-                case ItemID.IronBow:
-                    return 8;
-                case ItemID.SilverBow:
-                    return 9;
-                case ItemID.GoldBow:
-                    return 11;
-                case ItemID.Musket:
-                    return 25;
-                case ItemID.Minishark:
-                    return 6;
-                default:
-                    return 10; // Default damage
-            }
+            if (equippedWeapon == null)
+                return 10;
+
+            return equippedWeapon.damage;
         }
 
         /// <summary>
@@ -738,33 +802,10 @@ namespace TerraAIMod.Action.Actions
         /// <returns>The weapon knockback value.</returns>
         private float GetWeaponKnockback()
         {
-            // Return base knockback values for common weapons
-            switch (weaponType)
-            {
-                case ItemID.CopperShortsword:
-                case ItemID.IronShortsword:
-                case ItemID.SilverShortsword:
-                case ItemID.GoldShortsword:
-                    return 4f;
-                case ItemID.WoodenSword:
-                case ItemID.CopperBroadsword:
-                case ItemID.IronBroadsword:
-                case ItemID.SilverBroadsword:
-                case ItemID.GoldBroadsword:
-                    return 5f;
-                case ItemID.WoodenBow:
-                case ItemID.CopperBow:
-                case ItemID.IronBow:
-                case ItemID.SilverBow:
-                case ItemID.GoldBow:
-                    return 0f;
-                case ItemID.Musket:
-                    return 5.25f;
-                case ItemID.Minishark:
-                    return 0f;
-                default:
-                    return 3f; // Default knockback
-            }
+            if (equippedWeapon == null)
+                return 3f;
+
+            return equippedWeapon.knockBack;
         }
 
         /// <summary>
@@ -788,34 +829,81 @@ namespace TerraAIMod.Action.Actions
         /// <summary>
         /// Equips the best available weapon from inventory.
         /// </summary>
-        private void EquipBestWeapon()
+        /// <param name="preferRanged">Whether to prefer ranged weapons.</param>
+        private void EquipBestWeapon(bool preferRanged)
         {
-            // Placeholder implementation
-            // In a full implementation, this would scan Terra's inventory
-            // and select the highest damage weapon available
+            // Use Terra's inventory system to find the best weapon
+            int bestSlot = terra.FindBestWeaponSlot(preferRanged);
 
-            // Default to copper broadsword for now
-            weaponType = ItemID.CopperBroadsword;
-            usesAmmo = false;
-
-            // Check if we should prefer ranged
-            if (task.GetParameter<bool>("preferRanged", false))
+            if (bestSlot >= 0)
             {
-                weaponType = ItemID.WoodenBow;
-                usesAmmo = true;
+                equippedWeaponSlot = bestSlot;
+                equippedWeapon = terra.Inventory[bestSlot];
+                terra.EquippedWeaponSlot = bestSlot;
+
+                // Check if this weapon uses ammo
+                usesAmmo = equippedWeapon.useAmmo > 0;
+                if (usesAmmo)
+                {
+                    ammoType = equippedWeapon.useAmmo;
+                }
+            }
+            else
+            {
+                // No weapon found - try the other type
+                if (preferRanged)
+                {
+                    bestSlot = terra.FindBestWeaponSlot(false);
+                }
+                else
+                {
+                    bestSlot = terra.FindBestWeaponSlot(true);
+                }
+
+                if (bestSlot >= 0)
+                {
+                    equippedWeaponSlot = bestSlot;
+                    equippedWeapon = terra.Inventory[bestSlot];
+                    terra.EquippedWeaponSlot = bestSlot;
+
+                    usesAmmo = equippedWeapon.useAmmo > 0;
+                    if (usesAmmo)
+                    {
+                        ammoType = equippedWeapon.useAmmo;
+                    }
+                }
+                else
+                {
+                    // No weapons at all - this is a problem
+                    equippedWeapon = null;
+                    equippedWeaponSlot = -1;
+                    terra.EquippedWeaponSlot = -1;
+                    usesAmmo = false;
+                }
             }
         }
 
         /// <summary>
         /// Consumes ammo for ranged attacks.
         /// </summary>
-        private void ConsumeAmmo()
+        /// <param name="ammoSlot">The inventory slot of the ammo to consume.</param>
+        private void ConsumeAmmo(int ammoSlot)
         {
-            // Placeholder implementation
-            // In a full implementation, this would:
-            // 1. Find the appropriate ammo type in inventory
-            // 2. Reduce the stack count by 1
-            // 3. Remove the item if stack reaches 0
+            if (terra.Inventory == null || ammoSlot < 0 || ammoSlot >= TerraNPC.InventorySize)
+                return;
+
+            Item ammo = terra.Inventory[ammoSlot];
+            if (ammo.IsAir || ammo.stack <= 0)
+                return;
+
+            // Reduce ammo stack by 1
+            ammo.stack--;
+
+            // Remove item if depleted
+            if (ammo.stack <= 0)
+            {
+                ammo.TurnToAir();
+            }
         }
 
         #endregion
