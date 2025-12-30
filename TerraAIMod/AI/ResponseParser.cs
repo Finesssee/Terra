@@ -252,6 +252,9 @@ namespace TerraAIMod.AI
                 return null;
             }
 
+            // Normalize the action name
+            action = NormalizeActionName(action);
+
             // Extract parameters
             var parameters = new Dictionary<string, object>();
 
@@ -260,7 +263,9 @@ namespace TerraAIMod.AI
             {
                 foreach (var prop in paramsElement.EnumerateObject())
                 {
-                    parameters[prop.Name] = ConvertJsonValue(prop.Value);
+                    // Normalize parameter names to lowercase
+                    string normalizedKey = prop.Name.ToLowerInvariant();
+                    parameters[normalizedKey] = ConvertJsonValue(prop.Value);
                 }
             }
 
@@ -269,11 +274,210 @@ namespace TerraAIMod.AI
             {
                 if (prop.Name != "action" && prop.Name != "parameters")
                 {
-                    parameters[prop.Name] = ConvertJsonValue(prop.Value);
+                    string normalizedKey = prop.Name.ToLowerInvariant();
+                    parameters[normalizedKey] = ConvertJsonValue(prop.Value);
                 }
             }
 
+            // Normalize parameter values for certain keys
+            NormalizeParameters(action, parameters);
+
             return new Task(action, parameters);
+        }
+
+        /// <summary>
+        /// Normalizes action names to match the expected format in ActionExecutor.
+        /// Handles common variations and aliases.
+        /// </summary>
+        /// <param name="action">The raw action name from AI response.</param>
+        /// <returns>The normalized action name.</returns>
+        private static string NormalizeActionName(string action)
+        {
+            if (string.IsNullOrEmpty(action))
+                return action;
+
+            string lower = action.ToLowerInvariant().Trim();
+
+            // Map common variations to expected action names
+            return lower switch
+            {
+                // Mining/Digging
+                "dig" or "digdown" or "dig_down" or "excavate" => "dig",
+                "mine" or "mining" or "mine_ore" or "mineore" => "mine",
+
+                // Building
+                "build" or "building" or "construct" or "create" => "build",
+                "place" or "placeblock" or "place_block" or "placetile" or "place_tile" => "place",
+
+                // Combat
+                "attack" or "fight" or "combat" or "kill" or "damage" => "attack",
+                "boss" or "bossfight" or "boss_fight" or "fightboss" or "fight_boss" => "boss",
+
+                // Movement
+                "follow" or "following" or "followplayer" or "follow_player" => "follow",
+                "pathfind" or "goto" or "go_to" or "moveto" or "move_to" or "navigate" => "pathfind",
+                "explore" or "exploration" or "scout" => "explore",
+
+                // NPC Housing
+                "npchousing" or "npc_housing" or "housing" or "buildhouse" or "build_house" => "npcHousing",
+
+                _ => lower
+            };
+        }
+
+        /// <summary>
+        /// Normalizes parameter values based on the action type.
+        /// Ensures consistent formatting for parameter values.
+        /// </summary>
+        /// <param name="action">The normalized action name.</param>
+        /// <param name="parameters">The parameters dictionary to normalize.</param>
+        private static void NormalizeParameters(string action, Dictionary<string, object> parameters)
+        {
+            // Normalize direction parameters
+            if (parameters.TryGetValue("direction", out var direction) && direction is string dirStr)
+            {
+                parameters["direction"] = dirStr.ToLowerInvariant().Trim() switch
+                {
+                    "up" or "upward" or "upwards" => "up",
+                    "down" or "downward" or "downwards" => "down",
+                    "left" or "west" => "left",
+                    "right" or "east" => "right",
+                    _ => dirStr.ToLowerInvariant()
+                };
+            }
+
+            // Normalize target parameters for follow action
+            if (action == "follow" && parameters.TryGetValue("player", out var player) && player is string playerStr)
+            {
+                // Also store as "target" for compatibility
+                parameters["target"] = playerStr.ToLowerInvariant().Trim() switch
+                {
+                    "nearest" or "closest" or "near" => "nearest",
+                    _ => playerStr
+                };
+            }
+
+            // Normalize target parameters for attack action
+            if (action == "attack" && parameters.TryGetValue("target", out var target) && target is string targetStr)
+            {
+                parameters["target"] = targetStr.ToLowerInvariant().Trim() switch
+                {
+                    "nearest" or "closest" or "near" => "nearest",
+                    "strongest" or "biggest" or "powerful" => "strongest",
+                    _ => targetStr
+                };
+            }
+
+            // Normalize structure types for build action
+            if (action == "build" && parameters.TryGetValue("structure", out var structure) && structure is string structStr)
+            {
+                parameters["structure"] = structStr.ToLowerInvariant().Trim() switch
+                {
+                    "house" or "home" or "npchouse" or "npc_house" => "house",
+                    "tower" or "watchtower" or "guard_tower" => "tower",
+                    "arena" or "bossfight" or "boss_arena" or "fighting_arena" => "arena",
+                    "hellevator" or "hell_evator" or "hellshaft" or "hell_shaft" => "hellevator",
+                    "bridge" or "walkway" or "path" => "bridge",
+                    "wall" or "barrier" or "defense" => "wall",
+                    "platform" or "platforms" or "scaffold" => "platform",
+                    _ => structStr.ToLowerInvariant()
+                };
+            }
+
+            // Normalize boss names
+            if (action == "boss" && parameters.TryGetValue("boss", out var boss) && boss is string bossStr)
+            {
+                parameters["boss"] = NormalizeBossName(bossStr);
+            }
+
+            // Normalize biome names for explore action
+            if (action == "explore" && parameters.TryGetValue("biome", out var biome) && biome is string biomeStr)
+            {
+                parameters["biome"] = biomeStr.ToLowerInvariant().Trim() switch
+                {
+                    "forest" or "surface" or "purity" => "forest",
+                    "desert" or "sand" or "sandy" => "desert",
+                    "snow" or "ice" or "tundra" or "frozen" => "snow",
+                    "jungle" or "rainforest" => "jungle",
+                    "corruption" or "corrupt" or "ebonstone" => "corruption",
+                    "crimson" or "crimsone" or "bloody" => "crimson",
+                    "hallow" or "hallowed" or "holy" => "hallow",
+                    "ocean" or "beach" or "sea" => "ocean",
+                    "underground" or "below" or "under" => "underground",
+                    "cavern" or "caves" or "deep" => "cavern",
+                    "underworld" or "hell" or "lava" => "underworld",
+                    _ => biomeStr.ToLowerInvariant()
+                };
+            }
+
+            // Normalize ore/target names for mine action
+            if (action == "mine" && parameters.TryGetValue("target", out var mineTarget) && mineTarget is string mineStr)
+            {
+                parameters["target"] = NormalizeOreName(mineStr);
+            }
+        }
+
+        /// <summary>
+        /// Normalizes boss names to their expected format.
+        /// </summary>
+        private static string NormalizeBossName(string bossName)
+        {
+            string lower = bossName.ToLowerInvariant().Trim();
+
+            return lower switch
+            {
+                "eye" or "eyeofcthulhu" or "eye_of_cthulhu" or "eoc" => "EyeOfCthulhu",
+                "kingslime" or "king_slime" or "king slime" or "slimeking" => "KingSlime",
+                "eater" or "eaterofworlds" or "eater_of_worlds" or "eow" => "EaterOfWorlds",
+                "brain" or "brainofcthulhu" or "brain_of_cthulhu" or "boc" => "BrainOfCthulhu",
+                "queenbee" or "queen_bee" or "queen bee" or "bee" => "QueenBee",
+                "skeletron" or "skeleton" => "Skeletron",
+                "deerclops" or "deer" => "Deerclops",
+                "wall" or "wallofflesh" or "wall_of_flesh" or "wof" => "WallOfFlesh",
+                "twins" or "thetwins" or "the_twins" => "TheTwins",
+                "destroyer" or "thedestroyer" or "the_destroyer" => "TheDestroyer",
+                "prime" or "skeletronprime" or "skeletron_prime" => "SkeletronPrime",
+                "plantera" or "plant" => "Plantera",
+                "golem" or "lihzahrd" => "Golem",
+                "fishron" or "dukefishron" or "duke_fishron" or "duke" => "DukeFishron",
+                "empress" or "empressoflight" or "empress_of_light" or "eol" => "EmpressOfLight",
+                "cultist" or "lunaticcultist" or "lunatic_cultist" => "Cultist",
+                "moonlord" or "moon_lord" or "moon lord" or "ml" => "MoonLord",
+                "queenslime" or "queen_slime" or "queen slime" => "QueenSlime",
+                _ => bossName
+            };
+        }
+
+        /// <summary>
+        /// Normalizes ore/mining target names.
+        /// </summary>
+        private static string NormalizeOreName(string oreName)
+        {
+            string lower = oreName.ToLowerInvariant().Trim();
+
+            return lower switch
+            {
+                "copper" or "copper_ore" or "copper ore" => "copper",
+                "tin" or "tin_ore" or "tin ore" => "tin",
+                "iron" or "iron_ore" or "iron ore" => "iron",
+                "lead" or "lead_ore" or "lead ore" => "lead",
+                "silver" or "silver_ore" or "silver ore" => "silver",
+                "tungsten" or "tungsten_ore" or "tungsten ore" => "tungsten",
+                "gold" or "gold_ore" or "gold ore" => "gold",
+                "platinum" or "platinum_ore" or "platinum ore" => "platinum",
+                "demonite" or "demonite_ore" or "demonite ore" or "demon" => "demonite",
+                "crimtane" or "crimtane_ore" or "crimtane ore" => "crimtane",
+                "hellstone" or "hellstone_ore" or "hell" => "hellstone",
+                "cobalt" or "cobalt_ore" or "cobalt ore" => "cobalt",
+                "palladium" or "palladium_ore" or "palladium ore" => "palladium",
+                "mythril" or "mythril_ore" or "mythril ore" => "mythril",
+                "orichalcum" or "orichalcum_ore" or "orichalcum ore" => "orichalcum",
+                "adamantite" or "adamantite_ore" or "adamantite ore" => "adamantite",
+                "titanium" or "titanium_ore" or "titanium ore" => "titanium",
+                "chlorophyte" or "chlorophyte_ore" or "chlorophyte ore" or "chloro" => "chlorophyte",
+                "luminite" or "luminite_ore" or "luminite ore" or "lunar" => "luminite",
+                _ => lower
+            };
         }
 
         /// <summary>
@@ -331,7 +535,11 @@ namespace TerraAIMod.AI
                 foreach (Match match in matches)
                 {
                     string action = match.Groups[1].Value;
-                    result.Tasks.Add(new Task(action));
+                    action = NormalizeActionName(action);
+
+                    // Try to extract parameters for this action
+                    var parameters = TryExtractParametersFromMalformed(response, match.Index);
+                    result.Tasks.Add(new Task(action, parameters));
                 }
 
                 if (result.Tasks.Count > 0)
@@ -339,6 +547,166 @@ namespace TerraAIMod.AI
                     result.Success = true;
                     result.Error = "Partial parse - some data may be missing";
                 }
+            }
+            else
+            {
+                // Try keyword-based extraction as last resort
+                TryExtractFromKeywords(response, result);
+            }
+        }
+
+        /// <summary>
+        /// Attempts to extract parameters from a malformed response around an action match.
+        /// </summary>
+        private static Dictionary<string, object> TryExtractParametersFromMalformed(string response, int actionIndex)
+        {
+            var parameters = new Dictionary<string, object>();
+
+            // Look for common parameter patterns near the action
+            // Find the containing object by looking for the enclosing braces
+            int objectStart = response.LastIndexOf('{', actionIndex);
+            int objectEnd = response.IndexOf('}', actionIndex);
+
+            if (objectStart >= 0 && objectEnd > objectStart)
+            {
+                string objectContent = response.Substring(objectStart, objectEnd - objectStart + 1);
+
+                // Extract direction
+                var directionMatch = Regex.Match(objectContent, @"""direction""\s*:\s*""(\w+)""", RegexOptions.IgnoreCase);
+                if (directionMatch.Success)
+                {
+                    parameters["direction"] = directionMatch.Groups[1].Value.ToLowerInvariant();
+                }
+
+                // Extract target
+                var targetMatch = Regex.Match(objectContent, @"""target""\s*:\s*""([^""]+)""", RegexOptions.IgnoreCase);
+                if (targetMatch.Success)
+                {
+                    parameters["target"] = targetMatch.Groups[1].Value;
+                }
+
+                // Extract structure
+                var structureMatch = Regex.Match(objectContent, @"""structure""\s*:\s*""(\w+)""", RegexOptions.IgnoreCase);
+                if (structureMatch.Success)
+                {
+                    parameters["structure"] = structureMatch.Groups[1].Value.ToLowerInvariant();
+                }
+
+                // Extract boss
+                var bossMatch = Regex.Match(objectContent, @"""boss""\s*:\s*""([^""]+)""", RegexOptions.IgnoreCase);
+                if (bossMatch.Success)
+                {
+                    parameters["boss"] = NormalizeBossName(bossMatch.Groups[1].Value);
+                }
+
+                // Extract numeric values (depth, amount, width, height, distance)
+                foreach (var numParam in new[] { "depth", "amount", "width", "height", "distance", "x", "y" })
+                {
+                    var numMatch = Regex.Match(objectContent, $@"""{numParam}""\s*:\s*(\d+)", RegexOptions.IgnoreCase);
+                    if (numMatch.Success && int.TryParse(numMatch.Groups[1].Value, out int value))
+                    {
+                        parameters[numParam] = value;
+                    }
+                }
+
+                // Extract player
+                var playerMatch = Regex.Match(objectContent, @"""player""\s*:\s*""([^""]+)""", RegexOptions.IgnoreCase);
+                if (playerMatch.Success)
+                {
+                    parameters["player"] = playerMatch.Groups[1].Value;
+                }
+
+                // Extract biome
+                var biomeMatch = Regex.Match(objectContent, @"""biome""\s*:\s*""(\w+)""", RegexOptions.IgnoreCase);
+                if (biomeMatch.Success)
+                {
+                    parameters["biome"] = biomeMatch.Groups[1].Value.ToLowerInvariant();
+                }
+
+                // Extract material
+                var materialMatch = Regex.Match(objectContent, @"""material""\s*:\s*""(\w+)""", RegexOptions.IgnoreCase);
+                if (materialMatch.Success)
+                {
+                    parameters["material"] = materialMatch.Groups[1].Value.ToLowerInvariant();
+                }
+
+                // Extract tile
+                var tileMatch = Regex.Match(objectContent, @"""tile""\s*:\s*""(\w+)""", RegexOptions.IgnoreCase);
+                if (tileMatch.Success)
+                {
+                    parameters["tile"] = tileMatch.Groups[1].Value.ToLowerInvariant();
+                }
+
+                // Extract npc
+                var npcMatch = Regex.Match(objectContent, @"""npc""\s*:\s*""([^""]+)""", RegexOptions.IgnoreCase);
+                if (npcMatch.Success)
+                {
+                    parameters["npc"] = npcMatch.Groups[1].Value;
+                }
+            }
+
+            return parameters;
+        }
+
+        /// <summary>
+        /// Last resort extraction using keyword matching in plain text responses.
+        /// </summary>
+        private static void TryExtractFromKeywords(string response, ParsedResponse result)
+        {
+            string lower = response.ToLowerInvariant();
+
+            // Check for common command keywords
+            if (lower.Contains("follow") && (lower.Contains("player") || lower.Contains("me")))
+            {
+                result.Tasks.Add(new Task("follow", new Dictionary<string, object>
+                {
+                    { "target", "nearest" }
+                }));
+                result.Plan = "Following player (extracted from text)";
+                result.Success = true;
+            }
+            else if (lower.Contains("mine") || lower.Contains("dig"))
+            {
+                var parameters = new Dictionary<string, object>();
+                if (lower.Contains("iron")) parameters["target"] = "iron";
+                else if (lower.Contains("copper")) parameters["target"] = "copper";
+                else if (lower.Contains("gold")) parameters["target"] = "gold";
+                else if (lower.Contains("silver")) parameters["target"] = "silver";
+
+                if (lower.Contains("down")) parameters["direction"] = "down";
+                else if (lower.Contains("left")) parameters["direction"] = "left";
+                else if (lower.Contains("right")) parameters["direction"] = "right";
+
+                result.Tasks.Add(new Task(lower.Contains("mine") ? "mine" : "dig", parameters));
+                result.Plan = "Mining/digging (extracted from text)";
+                result.Success = true;
+            }
+            else if (lower.Contains("build") || lower.Contains("construct"))
+            {
+                var parameters = new Dictionary<string, object>();
+                if (lower.Contains("house")) parameters["structure"] = "house";
+                else if (lower.Contains("tower")) parameters["structure"] = "tower";
+                else if (lower.Contains("arena")) parameters["structure"] = "arena";
+                else if (lower.Contains("hellevator")) parameters["structure"] = "hellevator";
+                else parameters["structure"] = "house"; // Default
+
+                result.Tasks.Add(new Task("build", parameters));
+                result.Plan = "Building structure (extracted from text)";
+                result.Success = true;
+            }
+            else if (lower.Contains("attack") || lower.Contains("fight") || lower.Contains("kill"))
+            {
+                result.Tasks.Add(new Task("attack", new Dictionary<string, object>
+                {
+                    { "target", "nearest" }
+                }));
+                result.Plan = "Attacking enemies (extracted from text)";
+                result.Success = true;
+            }
+
+            if (result.Success)
+            {
+                result.Error = "Extracted from plain text - may be incomplete";
             }
         }
     }
