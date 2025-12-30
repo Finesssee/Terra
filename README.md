@@ -5,6 +5,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![tModLoader](https://img.shields.io/badge/tModLoader-1.4.4+-purple.svg)](https://github.com/tModLoader/tModLoader)
 [![.NET](https://img.shields.io/badge/.NET-8.0-512BD4.svg)](https://dotnet.microsoft.com/)
+[![C#](https://img.shields.io/badge/C%23-12.0-239120.svg)](https://docs.microsoft.com/en-us/dotnet/csharp/)
 
 Spawn intelligent NPCs that understand natural language commands. Tell them to mine, build, fight, or follow you—powered by LLMs (Groq, OpenAI, Gemini).
 
