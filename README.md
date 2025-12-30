@@ -1,190 +1,135 @@
-# Steve
+# Terra AI
 
-
-https://github.com/user-attachments/assets/23f0ccdd-7a7a-4d49-9dd9-215ebf67265a
-
-We built Cursor for Minecraft. Instead of AI that helps you write code, you get AI agents that actually play the game with you.
+AI companions for Terraria. Port of the Steve AI Minecraft mod to tModLoader.
 
 ## What It Does
 
-Steve acts as an Agent, or a series of Agents if you choose to employ all of them. You describe what you want, and he understands the context and executes. Same concept here, except instead of code editing, you get embodied Steves that operate in your Minecraft world.
+Terra AI creates NPC companions that respond to natural language commands. Describe what you want, and they figure out how to do it - mining, building, combat, following, exploration.
 
-The interface is simple: press K to open a panel, type what you need. The agents handle the interpretation, planning, and execution. Say "mine some iron" and the agent reasons about where iron spawns, navigates to the appropriate depth, locates ore veins, and extracts the resources. Ask for a house and it considers the available materials, generates an appropriate structure, and builds it block by block.
+The interface is the in-game chat. Type `/terra tell Bob mine some copper` and Bob reasons about where copper spawns, navigates there, and starts mining. Ask for a house and it considers available materials, generates a structure, and builds it tile by tile.
 
-What makes this interesting is the multi-agent coordination. When multiple Steves work on the same task, they don't just independently execute, they actively coordinate to avoid conflicts and optimize workload distribution. Tell three agents to build a castle and they'll automatically partition the structure, divide sections among themselves, and parallelize the construction.
-
-The agents aren't following predefined scripts. They're operating off natural language instructions, which means:
-- **Resource extraction** where agents determine optimal mining locations and strategies
-- **Autonomous building** with agents planning layouts and material usage
-- **Combat and defense** where agents assess threats and coordinate responses
-- **Exploration and gathering** with pathfinding and resource location
-- **Collaborative execution** with automatic workload balancing and conflict resolution
+**Capabilities:**
+- **Resource extraction** - agents determine optimal mining locations and strategies
+- **Autonomous building** - planning layouts and material usage
+- **Combat and defense** - assess threats and coordinate responses
+- **Exploration and gathering** - pathfinding and resource location
+- **Collaborative execution** - multiple Terras coordinate on large tasks
 
 ## How It Works
 
-Each Steve is basically running an agent loop. When you give a command:
+Each Terra runs an agent loop:
 
-1. It goes to an LLM; we're using Groq for fast inference
-2. The LLM breaks down your request into structured code
-3. Code gets executed using Minecraft's actual game mechanics
-4. If something fails, the agent asks the LLM to replan
+1. Command goes to an LLM (Groq, OpenAI, or Gemini)
+2. LLM breaks down request into structured actions
+3. Actions execute using Terraria's game mechanics
+4. If something fails, the agent replans
 
 ## Multi-Agent Coordination
 
-The interesting part is when you have multiple Steves working together. We built a coordination system so they don't step on each other's toes.
-
-When you tell several agents to build the same structure, they:
-- Automatically split it into sections
-- Each take a part
-- Don't place blocks in the same spot
+When multiple Terras work on the same structure:
+- Automatically split into sections
+- Each takes a part
+- No conflicts when placing tiles
 - Rebalance work if someone finishes early
 
-The coordination happens server-side through a manager that tracks active builds and assigns work. It's deterministic, so there's no race conditions or weird conflicts.
+Coordination happens through `TerraManager` which tracks active builds and assigns work.
 
-## Setup
+## Requirements
 
-**You need:**
-- Minecraft 1.20.1 with Forge
-- Java 17
-- An OpenAI API key (or Groq/Gemini if you prefer)
+- **Terraria** with tModLoader 1.4.4+
+- **.NET 8.0 SDK** (for building from source)
+- **API Key** for one of: OpenAI, Groq, or Gemini
 
-**Installation:**
-1. Download the JAR from releases
-2. Put it in your `mods` folder
-3. Launch Minecraft
-4. Copy `config/steve-common.toml.example` to `config/steve-common.toml`
-5. Add your API key to the config
+## Installation
 
-Config looks like this:
-```toml
-[openai]
-apiKey = "your-api-key-here"
-model = "gpt-3.5-turbo"
-maxTokens = 1000
-temperature = 0.7
-```
+### From Release
+1. Download the `.tmod` file from releases
+2. Place in `Documents/My Games/Terraria/tModLoader/Mods/`
+3. Enable in tModLoader mod menu
+4. Configure API key (see Configuration below)
 
-Then just spawn a Steve with `/steve spawn Bob` and press K to start using them.
-
-## How We Built This
-
-**Tech Stack:**
-- Minecraft Forge 47.2.0 for the modding framework
-- Java 17
-- Groq API for the agent reasoning (pluggable, also supports OpenAI and Gemini)
-- Standard Minecraft pathfinding for movement
-- Langchain
-
-**Architecture:**
-
-The core is in the agent package. Each Steve runs a ReAct-style loop:
-- Reason about what to do
-- Act by executing Java code
-- Observe the results
-- Repeat
-
-For memory, each Steve maintains a conversation history and context about the world. This gets injected into every LLM call so agents can handle follow-up commands without you repeating context.
-
-The collaborative building system was trickier. We had to build a manager that:
-- Divides structures into spatial sections
-- Assigns Steves to sections
-- Prevents conflicts when placing blocks
-- Handles reassignment when Steves finish
-
-It's all server-side, so there's no synchronization issues.
-
-**Project Structure:**
-```
-src/main/java/com/steve/ai/
-├── entity/          # Steve entity class, spawning, lifecycle
-├── ai/              # LLM clients (OpenAI, Groq, Gemini), prompt building
-├── action/          # Action classes for mine, build, combat, etc
-├── agent/           # Core agent loop and coordination
-├── memory/          # Context management and world state
-├── client/          # GUI (the Cursor-style panel)
-└── command/         # Minecraft commands (/steve spawn, etc)
-```
-
-If you want to understand how it works, start in the agent package. That's where the reasoning loop lives.
-
-## Building From Source
-
-Standard Gradle stuff:
-
+### From Source
 ```bash
-git clone https://github.com/YuvDwi/Steve.git
-cd Steve
-./gradlew build
+git clone <repo-url>
+cd terraria/TerraAIMod
+dotnet build
 ```
 
-Output JAR is in `build/libs/`.
+Output goes to your tModLoader mods folder.
+
+## Configuration
+
+Create a config file or use the in-game Mod Configuration menu.
+
+Required settings:
+- `ApiKey` - Your LLM provider API key
+- `Provider` - One of: `openai`, `groq`, `gemini`
+- `Model` - Model name (e.g., `gpt-3.5-turbo`, `llama-3.1-70b-versatile`)
+
+## Commands
+
+```
+/terra spawn [name]           Spawn a Terra NPC at your position
+/terra tell <name> <command>  Give natural language command
+/terra list                   List all active Terras
+/terra stop <name>            Stop current action
+/terra remove <name>          Remove a specific Terra
+/terra clear                  Remove all Terras
+```
 
 ## Usage Examples
 
-Once you've got Steves spawned, just press K and start talking:
-
 ```
-"mine 20 iron ore"
-"build a house near me"
-"help Alex with the tower"
-"defend me from zombies"
-"follow me"
-"gather wood from that forest"
-"make a cobblestone platform here"
-"attack that creeper"
+/terra spawn Bob
+/terra tell Bob mine 20 copper ore
+/terra tell Bob build a house near me
+/terra tell Bob follow me
+/terra tell Bob attack that zombie
+/terra tell Bob dig down 50 tiles
+/terra tell Bob gather wood from that forest
 ```
 
-The agents are pretty good at figuring out what you mean. You don't need to be super specific.
+Terras understand context. You don't need to be super specific.
+
+## Architecture
+
+```
+TerraAIMod/
+├── NPCs/            # TerraNPC entity class
+├── AI/              # LLM clients (OpenAI, Groq, Gemini), prompt building
+├── Action/          # Action classes for mine, build, combat, etc
+│   └── Actions/     # Individual action implementations
+├── Memory/          # Context management and world state
+├── Pathfinding/     # A* pathfinder adapted for Terraria
+├── Systems/         # TerraManager, TerraSystem (tModLoader hooks)
+├── Commands/        # Chat commands (/terra)
+├── Config/          # Mod configuration
+├── UI/              # Chat panel UI
+└── Players/         # TerraModPlayer (per-player state)
+```
 
 ## Known Issues
 
-**The agents are only as smart as the LLM.** GPT-3.5 works but makes occasional weird decisions. GPT-4 is noticeably better at multi-step planning.
+- **LLM quality matters** - GPT-3.5 works but GPT-4/Claude are better at complex planning
+- **Actions are synchronous** - Terra can only do one thing at a time
+- **Memory resets on world exit** - Context only persists during play session
 
-**No crafting yet.** Agents can mine and place blocks but can't craft tools. We're working on it.
+## Ported From
 
-**Actions are synchronous.** If a Steve is mining, it can't do anything else until done. Planning to add proper async execution.
+This is a port of [Steve AI for Minecraft](https://github.com/YuvDwi/Steve) - same concept, adapted for Terraria's 2D tile-based world.
 
-**Memory resets on restart.** Right now context only persists during a play session. We're adding persistent memory with a vector DB.
-
-## What's Next
-
-Things we're working on:
-- Crafting system so agents can make their own tools
-- Voice commands via Whisper API
-- Vector database for long-term memory
-- Async action execution for multitasking
-- More complex building templates
-
-Goal is to make this actually useful for survival gameplay, not just a tech demo.
-
-## Contributing
-
-If you want to add stuff:
-1. Fork the repo
-2. Make your changes
-3. Make sure it builds with `./gradlew build`
-4. Submit a PR
-
-If you're adding new actions, update the prompt template in `PromptBuilder.java` so the LLM knows about them.
-
-## Why We Made This
-
-We wanted to see if the Cursor model could work outside of coding. Turns out it translates pretty well. Same principles: deep environment integration, clear action primitives, persistent context.
-
-Minecraft is actually a good testbed for agent research. Complex enough to be interesting, constrained enough that agents can actually succeed.
-
-Plus it's just fun watching AIs build castles while you explore.
-
-## Credits
-
-- OpenAI for GPT
-- Minecraft Forge for the modding API
-- LangChain/AutoGPT for agent architecture inspiration
+Key differences from Minecraft version:
+- 2D pathfinding instead of 3D
+- Tile-based building instead of block-based
+- Terraria-specific ore locations and biomes
+- tModLoader mod system instead of Forge
 
 ## License
 
 MIT
 
-## Issues
+## Credits
 
-Found a bug? Open an issue: https://github.com/YuvDwi/Steve/issues
+- Original Steve AI by YuvDwi
+- OpenAI, Groq, Google for LLM APIs
+- tModLoader team for the modding framework
