@@ -12,13 +12,6 @@ obj/
 *.iml
 .vscode/
 
-# Minecraft
-run/
-
-# Config with API keys
-config/steve-common.toml
-run/config/steve-common.toml
-
 # Misc
 *.log
 .DS_Store
