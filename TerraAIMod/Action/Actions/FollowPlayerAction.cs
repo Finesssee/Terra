@@ -209,6 +209,13 @@ namespace TerraAIMod.Action.Actions
                 {
                     terra.NPC.direction = 1;
                 }
+                terra.NPC.spriteDirection = terra.NPC.direction;
+
+                // Check if blocked and need to jump
+                if (IsBlockedAhead() && IsOnGround())
+                {
+                    terra.NPC.velocity.Y = -5.1f; // Jump velocity
+                }
             }
 
             // Execute the current path
@@ -448,6 +455,70 @@ namespace TerraAIMod.Action.Actions
                 float direction = Math.Sign(targetPlayer.Center.X - terra.NPC.Center.X);
                 terra.NPC.velocity.X = direction * 3f;
             }
+        }
+
+        #endregion
+
+        #region Movement Helper Methods
+
+        /// <summary>
+        /// Checks if there's a solid tile blocking Terra's path ahead.
+        /// </summary>
+        /// <returns>True if Terra is blocked by a solid tile.</returns>
+        private bool IsBlockedAhead()
+        {
+            int direction = terra.NPC.direction;
+            int tileX = (int)((terra.NPC.Center.X + direction * (terra.NPC.width / 2f + 8)) / TileSize);
+            int tileY = (int)((terra.NPC.position.Y + terra.NPC.height - 1) / TileSize);
+
+            if (tileX < 0 || tileX >= Main.maxTilesX || tileY < 0 || tileY >= Main.maxTilesY)
+                return true;
+
+            Tile tile = Main.tile[tileX, tileY];
+            if (tile.HasTile && Main.tileSolid[tile.TileType] && !Main.tileSolidTop[tile.TileType])
+            {
+                return true;
+            }
+
+            // Also check the tile at body level
+            int bodyTileY = (int)(terra.NPC.Center.Y / TileSize);
+            if (bodyTileY >= 0 && bodyTileY < Main.maxTilesY)
+            {
+                Tile bodyTile = Main.tile[tileX, bodyTileY];
+                if (bodyTile.HasTile && Main.tileSolid[bodyTile.TileType] && !Main.tileSolidTop[bodyTile.TileType])
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// Checks if Terra is standing on solid ground.
+        /// </summary>
+        /// <returns>True if on ground.</returns>
+        private bool IsOnGround()
+        {
+            // Check tiles beneath Terra's feet
+            int leftTileX = (int)(terra.NPC.position.X / TileSize);
+            int rightTileX = (int)((terra.NPC.position.X + terra.NPC.width) / TileSize);
+            int bottomTileY = (int)((terra.NPC.position.Y + terra.NPC.height + 1) / TileSize);
+
+            for (int x = leftTileX; x <= rightTileX; x++)
+            {
+                if (x < 0 || x >= Main.maxTilesX || bottomTileY < 0 || bottomTileY >= Main.maxTilesY)
+                    continue;
+
+                Tile tile = Main.tile[x, bottomTileY];
+                if (tile.HasTile && Main.tileSolid[tile.TileType])
+                {
+                    return true;
+                }
+            }
+
+            // Also consider being on ground if Y velocity is near zero
+            return Math.Abs(terra.NPC.velocity.Y) < 0.01f && terra.NPC.velocity.Y >= 0;
         }
 
         #endregion
