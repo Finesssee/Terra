@@ -3,6 +3,7 @@ using System.Text;
 using Microsoft.Xna.Framework;
 using TerraAIMod.NPCs;
 using Terraria;
+using Terraria.ID;
 
 namespace TerraAIMod.AI
 {
@@ -632,7 +633,7 @@ Remember: Always respond with valid JSON. Be helpful and consider the game conte
                     if (!tools.Contains(itemName))
                         tools.Add(itemName);
                 }
-                else if (item.createTile >= 0 || item.createWall >= 0 || item.material)
+                else if (item.createTile >= TileID.Dirt || item.createWall >= WallID.None || item.material)
                 {
                     // Building material or crafting material
                     if (materials.ContainsKey(itemName))
