@@ -47,6 +47,11 @@ namespace TerraAIMod.Action.Actions
         /// </summary>
         private const float TileSize = 16f;
 
+        /// <summary>
+        /// Number of placement attempts before skipping a tile.
+        /// </summary>
+        private const int MaxPlacementAttempts = 3;
+
         #endregion
 
         #region Fields
@@ -101,6 +106,37 @@ namespace TerraAIMod.Action.Actions
         /// </summary>
         private bool isNavigating;
 
+        /// <summary>
+        /// Number of placement attempts for the current tile.
+        /// </summary>
+        private int currentTilePlacementAttempts;
+
+        /// <summary>
+        /// Total tiles successfully placed.
+        /// </summary>
+        private int tilesPlaced;
+
+        /// <summary>
+        /// Total tiles skipped due to placement failures.
+        /// </summary>
+        private int tilesSkipped;
+
+        /// <summary>
+        /// Whether Terra operates in creative mode (infinite materials).
+        /// Terra is an AI companion, so defaults to true.
+        /// </summary>
+        private bool creativeMode = true;
+
+        /// <summary>
+        /// Material type to use for walls (can be customized).
+        /// </summary>
+        private int preferredWallType;
+
+        /// <summary>
+        /// Material type to use for blocks (can be customized).
+        /// </summary>
+        private int preferredBlockType;
+
         #endregion
 
         #region Constructor
@@ -118,6 +154,11 @@ namespace TerraAIMod.Action.Actions
             isCollaborative = false;
             currentTile = null;
             isNavigating = false;
+            currentTilePlacementAttempts = 0;
+            tilesPlaced = 0;
+            tilesSkipped = 0;
+            preferredWallType = WallID.Wood;
+            preferredBlockType = TileID.WoodBlock;
         }
 
         #endregion
@@ -140,6 +181,15 @@ namespace TerraAIMod.Action.Actions
             // Get optional dimensions
             int width = task.GetParameter<int>("width", GetDefaultWidth(structureType));
             int height = task.GetParameter<int>("height", GetDefaultHeight(structureType));
+
+            // Get material preferences
+            string blockMaterial = task.GetParameter<string>("material", "wood").ToLowerInvariant();
+            string wallMaterial = task.GetParameter<string>("wallMaterial", "wood").ToLowerInvariant();
+            preferredBlockType = ParseBlockType(blockMaterial);
+            preferredWallType = ParseWallType(wallMaterial);
+
+            // Check if creative mode is disabled
+            creativeMode = task.GetParameter<bool>("creativeMode", true);
 
             // Initialize pathfinder and executor
             pathfinder = new TerrariaPathfinder(terra.NPC);
@@ -267,11 +317,19 @@ namespace TerraAIMod.Action.Actions
             if (placed)
             {
                 currentTile = null; // Move to next tile
+                currentTilePlacementAttempts = 0;
             }
             else
             {
-                // Failed to place, might need to clear the area first or skip
-                currentTile = null;
+                // Failed to place - track attempts and skip after max attempts
+                currentTilePlacementAttempts++;
+                if (currentTilePlacementAttempts >= MaxPlacementAttempts)
+                {
+                    // Skip this tile after max attempts
+                    TerraAIMod.Instance?.Logger.Debug($"Skipping tile at ({currentTile.X}, {currentTile.Y}) after {MaxPlacementAttempts} failed attempts");
+                    currentTile = null;
+                    currentTilePlacementAttempts = 0;
+                }
             }
         }
 
@@ -292,6 +350,7 @@ namespace TerraAIMod.Action.Actions
 
         /// <summary>
         /// Places a tile or wall at the specified location.
+        /// In non-creative mode, checks if the player has the required materials.
         /// </summary>
         /// <param name="placement">The tile placement information.</param>
         /// <returns>True if successfully placed, false otherwise.</returns>
@@ -305,7 +364,35 @@ namespace TerraAIMod.Action.Actions
 
             // Validate coordinates
             if (x < 0 || x >= Main.maxTilesX || y < 0 || y >= Main.maxTilesY)
+            {
+                tilesSkipped++;
                 return false;
+            }
+
+            // In non-creative mode, check if player has required materials
+            if (!creativeMode && terra.TargetPlayer != null)
+            {
+                if (placement.IsWall)
+                {
+                    int requiredItemId = GetWallItemId(placement.WallType);
+                    if (!HasItem(terra.TargetPlayer, requiredItemId))
+                    {
+                        tilesSkipped++;
+                        return false; // Player doesn't have required wall material
+                    }
+                    ConsumeItem(terra.TargetPlayer, requiredItemId, 1);
+                }
+                else
+                {
+                    int requiredItemId = GetTileItemId(placement.TileType);
+                    if (!HasItem(terra.TargetPlayer, requiredItemId))
+                    {
+                        tilesSkipped++;
+                        return false; // Player doesn't have required tile material
+                    }
+                    ConsumeItem(terra.TargetPlayer, requiredItemId, 1);
+                }
+            }
 
             bool success = false;
 
@@ -339,7 +426,136 @@ namespace TerraAIMod.Action.Actions
                 NetMessage.SendTileSquare(-1, x, y, 1);
             }
 
+            // Track statistics
+            if (success)
+            {
+                tilesPlaced++;
+            }
+            else
+            {
+                tilesSkipped++;
+            }
+
             return success;
+        }
+
+        /// <summary>
+        /// Checks if a player has a specific item in their inventory.
+        /// </summary>
+        /// <param name="player">The player to check.</param>
+        /// <param name="itemId">The item ID to look for.</param>
+        /// <returns>True if the player has at least one of the item.</returns>
+        private bool HasItem(Player player, int itemId)
+        {
+            if (player == null || itemId <= 0)
+                return false;
+
+            for (int i = 0; i < player.inventory.Length; i++)
+            {
+                if (player.inventory[i].type == itemId && player.inventory[i].stack > 0)
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// Consumes an item from the player's inventory.
+        /// </summary>
+        /// <param name="player">The player whose inventory to modify.</param>
+        /// <param name="itemId">The item ID to consume.</param>
+        /// <param name="amount">The amount to consume.</param>
+        private void ConsumeItem(Player player, int itemId, int amount)
+        {
+            if (player == null || itemId <= 0 || amount <= 0)
+                return;
+
+            int remaining = amount;
+            for (int i = 0; i < player.inventory.Length && remaining > 0; i++)
+            {
+                if (player.inventory[i].type == itemId && player.inventory[i].stack > 0)
+                {
+                    int toConsume = Math.Min(remaining, player.inventory[i].stack);
+                    player.inventory[i].stack -= toConsume;
+                    remaining -= toConsume;
+
+                    if (player.inventory[i].stack <= 0)
+                    {
+                        player.inventory[i].TurnToAir();
+                    }
+                }
+            }
+        }
+
+        /// <summary>
+        /// Gets the item ID that corresponds to a tile type.
+        /// </summary>
+        /// <param name="tileType">The tile type ID.</param>
+        /// <returns>The corresponding item ID.</returns>
+        private int GetTileItemId(int tileType)
+        {
+            // Common tile-to-item mappings
+            switch (tileType)
+            {
+                case TileID.Dirt: return ItemID.DirtBlock;
+                case TileID.Stone: return ItemID.StoneBlock;
+                case TileID.WoodBlock: return ItemID.Wood;
+                case TileID.Platforms: return ItemID.WoodPlatform;
+                case TileID.Torches: return ItemID.Torch;
+                case TileID.Sand: return ItemID.SandBlock;
+                case TileID.Mud: return ItemID.MudBlock;
+                case TileID.ClayBlock: return ItemID.ClayBlock;
+                case TileID.Glass: return ItemID.Glass;
+                case TileID.Obsidian: return ItemID.Obsidian;
+                case TileID.Ash: return ItemID.AshBlock;
+                case TileID.SnowBlock: return ItemID.SnowBlock;
+                case TileID.IceBlock: return ItemID.IceBlock;
+                case TileID.GrayBrick: return ItemID.GrayBrick;
+                case TileID.RedBrick: return ItemID.RedBrick;
+                case TileID.ClosedDoor: return ItemID.WoodenDoor;
+                case TileID.Tables: return ItemID.WoodenTable;
+                case TileID.Chairs: return ItemID.WoodenChair;
+                case TileID.Rope: return ItemID.Rope;
+                case TileID.Chain: return ItemID.Chain;
+                case TileID.BorealWood: return ItemID.BorealWood;
+                case TileID.PalmWood: return ItemID.PalmWood;
+                case TileID.Ebonwood: return ItemID.Ebonwood;
+                case TileID.Shadewood: return ItemID.Shadewood;
+                case TileID.Pearlwood: return ItemID.Pearlwood;
+                case TileID.RichMahogany: return ItemID.RichMahogany;
+                case TileID.SpookyWood: return ItemID.SpookyWood;
+                case TileID.Campfire: return ItemID.Campfire;
+                case TileID.HangingLanterns: return ItemID.ChainLantern;
+                default: return 0; // Unknown tile type
+            }
+        }
+
+        /// <summary>
+        /// Gets the item ID that corresponds to a wall type.
+        /// </summary>
+        /// <param name="wallType">The wall type ID.</param>
+        /// <returns>The corresponding item ID.</returns>
+        private int GetWallItemId(int wallType)
+        {
+            // Common wall-to-item mappings
+            switch (wallType)
+            {
+                case WallID.Wood: return ItemID.WoodWall;
+                case WallID.Stone: return ItemID.StoneWall;
+                case WallID.Dirt: return ItemID.DirtWall;
+                case WallID.GrayBrick: return ItemID.GrayBrickWall;
+                case WallID.RedBrick: return ItemID.RedBrickWall;
+                case WallID.Glass: return ItemID.GlassWall;
+                case WallID.ObsidianBrick: return ItemID.ObsidianBrickWall;
+                case WallID.BorealWood: return ItemID.BorealWoodWall;
+                case WallID.PalmWood: return ItemID.PalmWoodWall;
+                case WallID.Ebonwood: return ItemID.EbonwoodWall;
+                case WallID.Shadewood: return ItemID.ShadewoodWall;
+                case WallID.Pearlwood: return ItemID.PearlwoodWall;
+                case WallID.SpookyWood: return ItemID.SpookyWoodWall;
+                default: return 0; // Unknown wall type
+            }
         }
 
         /// <summary>
@@ -419,35 +635,39 @@ namespace TerraAIMod.Action.Actions
             int x = start.X;
             int y = start.Y;
 
-            // Floor (bottom row) - Wood blocks
+            // Use preferred materials or defaults
+            int blockType = preferredBlockType;
+            int wallType = preferredWallType;
+
+            // Floor (bottom row)
             for (int i = 0; i < width; i++)
             {
-                plan.Add(new TilePlacement(x + i, y, TileID.WoodBlock));
+                plan.Add(new TilePlacement(x + i, y, blockType));
             }
 
-            // Ceiling (top row) - Wood blocks
+            // Ceiling (top row)
             for (int i = 0; i < width; i++)
             {
-                plan.Add(new TilePlacement(x + i, y - height + 1, TileID.WoodBlock));
+                plan.Add(new TilePlacement(x + i, y - height + 1, blockType));
             }
 
             // Left wall with door space
             int doorY = y - 1; // Door position (one tile above floor)
             for (int j = 1; j < height - 1; j++)
             {
-                int wallY = y - j;
-                if (wallY == doorY || wallY == doorY - 1 || wallY == doorY - 2)
+                int wallYCoord = y - j;
+                if (wallYCoord == doorY || wallYCoord == doorY - 1 || wallYCoord == doorY - 2)
                 {
                     // Skip for door space (door is 3 tiles tall)
                     continue;
                 }
-                plan.Add(new TilePlacement(x, wallY, TileID.WoodBlock));
+                plan.Add(new TilePlacement(x, wallYCoord, blockType));
             }
 
             // Right wall (solid)
             for (int j = 1; j < height - 1; j++)
             {
-                plan.Add(new TilePlacement(x + width - 1, y - j, TileID.WoodBlock));
+                plan.Add(new TilePlacement(x + width - 1, y - j, blockType));
             }
 
             // Background walls (inside the house)
@@ -455,7 +675,7 @@ namespace TerraAIMod.Action.Actions
             {
                 for (int j = 1; j < height - 1; j++)
                 {
-                    plan.Add(new TilePlacement(x + i, y - j, -1, WallID.Wood, true));
+                    plan.Add(new TilePlacement(x + i, y - j, -1, wallType, true));
                 }
             }
 
@@ -494,12 +714,16 @@ namespace TerraAIMod.Action.Actions
             int floorHeight = 6; // Height of each floor
             int numFloors = height / floorHeight;
 
+            // Use preferred materials
+            int blockType = preferredBlockType;
+            int wallType = preferredWallType;
+
             for (int floor = 0; floor < numFloors; floor++)
             {
                 int floorY = y - (floor * floorHeight);
 
                 // Floor (platforms except for ground floor which uses solid blocks)
-                int floorTile = floor == 0 ? TileID.WoodBlock : TileID.Platforms;
+                int floorTile = floor == 0 ? blockType : TileID.Platforms;
                 for (int i = 0; i < width; i++)
                 {
                     plan.Add(new TilePlacement(x + i, floorY, floorTile));
@@ -508,13 +732,13 @@ namespace TerraAIMod.Action.Actions
                 // Left wall
                 for (int j = 1; j < floorHeight; j++)
                 {
-                    plan.Add(new TilePlacement(x, floorY - j, TileID.WoodBlock));
+                    plan.Add(new TilePlacement(x, floorY - j, blockType));
                 }
 
                 // Right wall
                 for (int j = 1; j < floorHeight; j++)
                 {
-                    plan.Add(new TilePlacement(x + width - 1, floorY - j, TileID.WoodBlock));
+                    plan.Add(new TilePlacement(x + width - 1, floorY - j, blockType));
                 }
 
                 // Background walls
@@ -522,7 +746,7 @@ namespace TerraAIMod.Action.Actions
                 {
                     for (int j = 1; j < floorHeight; j++)
                     {
-                        plan.Add(new TilePlacement(x + i, floorY - j, -1, WallID.Wood, true));
+                        plan.Add(new TilePlacement(x + i, floorY - j, -1, wallType, true));
                     }
                 }
 
@@ -544,7 +768,7 @@ namespace TerraAIMod.Action.Actions
             int topY = y - (numFloors * floorHeight);
             for (int i = 0; i < width; i++)
             {
-                plan.Add(new TilePlacement(x + i, topY + floorHeight, TileID.WoodBlock));
+                plan.Add(new TilePlacement(x + i, topY + floorHeight, blockType));
             }
 
             return plan;
@@ -563,6 +787,9 @@ namespace TerraAIMod.Action.Actions
             int x = start.X;
             int y = start.Y;
 
+            // Use preferred materials for support pillars
+            int blockType = preferredBlockType;
+
             // Main platform surface
             for (int i = 0; i < width; i++)
             {
@@ -575,7 +802,7 @@ namespace TerraAIMod.Action.Actions
                 // Pillar going down
                 for (int j = 1; j <= 5; j++)
                 {
-                    plan.Add(new TilePlacement(x + i, y + j, TileID.WoodBlock));
+                    plan.Add(new TilePlacement(x + i, y + j, blockType));
                 }
             }
 
@@ -584,7 +811,7 @@ namespace TerraAIMod.Action.Actions
             {
                 for (int j = 1; j <= 5; j++)
                 {
-                    plan.Add(new TilePlacement(x + width - 1, y + j, TileID.WoodBlock));
+                    plan.Add(new TilePlacement(x + width - 1, y + j, blockType));
                 }
             }
 
@@ -612,10 +839,13 @@ namespace TerraAIMod.Action.Actions
             int y = start.Y;
             int platformSpacing = 8; // Vertical spacing between platform rows
 
+            // Use preferred materials
+            int blockType = preferredBlockType;
+
             // Ground floor - solid
             for (int i = 0; i < width; i++)
             {
-                plan.Add(new TilePlacement(x + i, y, TileID.WoodBlock));
+                plan.Add(new TilePlacement(x + i, y, blockType));
             }
 
             // Multiple platform rows
@@ -875,6 +1105,156 @@ namespace TerraAIMod.Action.Actions
         #endregion
 
         #region Helpers
+
+        /// <summary>
+        /// Parses a block material name to its corresponding TileID.
+        /// </summary>
+        /// <param name="material">The name of the block material.</param>
+        /// <returns>The TileID value for the block type.</returns>
+        private int ParseBlockType(string material)
+        {
+            if (string.IsNullOrEmpty(material))
+                return TileID.WoodBlock;
+
+            switch (material.ToLowerInvariant())
+            {
+                case "wood":
+                case "woodblock":
+                    return TileID.WoodBlock;
+                case "stone":
+                case "stoneblock":
+                    return TileID.Stone;
+                case "dirt":
+                case "dirtblock":
+                    return TileID.Dirt;
+                case "graybrick":
+                case "greybrick":
+                case "stonebrick":
+                    return TileID.GrayBrick;
+                case "redbrick":
+                    return TileID.RedBrick;
+                case "glass":
+                    return TileID.Glass;
+                case "ebonstone":
+                    return TileID.Ebonstone;
+                case "crimstone":
+                    return TileID.Crimstone;
+                case "pearlstone":
+                    return TileID.Pearlstone;
+                case "obsidian":
+                    return TileID.Obsidian;
+                case "mudstone":
+                case "mud":
+                    return TileID.Mud;
+                case "sandstone":
+                    return TileID.Sandstone;
+                case "snow":
+                case "snowblock":
+                    return TileID.SnowBlock;
+                case "ice":
+                case "iceblock":
+                    return TileID.IceBlock;
+                case "boreal":
+                case "borealwood":
+                    return TileID.BorealWood;
+                case "palmwood":
+                    return TileID.PalmWood;
+                case "dynasty":
+                case "dynastywood":
+                    return TileID.DynastyWood;
+                case "ebonwood":
+                    return TileID.Ebonwood;
+                case "shadewood":
+                    return TileID.Shadewood;
+                case "pearlwood":
+                    return TileID.Pearlwood;
+                case "richwood":
+                case "richmahogany":
+                    return TileID.RichMahogany;
+                case "livingwood":
+                    return TileID.LivingWood;
+                case "spooky":
+                case "spookywood":
+                    return TileID.SpookyWood;
+                default:
+                    // Try to parse as numeric ID
+                    if (int.TryParse(material, out int tileId))
+                    {
+                        return tileId;
+                    }
+                    return TileID.WoodBlock;
+            }
+        }
+
+        /// <summary>
+        /// Parses a wall material name to its corresponding WallID.
+        /// </summary>
+        /// <param name="material">The name of the wall material.</param>
+        /// <returns>The WallID value for the wall type.</returns>
+        private int ParseWallType(string material)
+        {
+            if (string.IsNullOrEmpty(material))
+                return WallID.Wood;
+
+            switch (material.ToLowerInvariant())
+            {
+                case "wood":
+                case "woodwall":
+                    return WallID.Wood;
+                case "stone":
+                case "stonewall":
+                    return WallID.Stone;
+                case "dirt":
+                case "dirtwall":
+                    return WallID.Dirt;
+                case "graybrick":
+                case "greybrick":
+                case "stonebrick":
+                    return WallID.GrayBrick;
+                case "redbrick":
+                    return WallID.RedBrick;
+                case "glass":
+                    return WallID.Glass;
+                case "obsidian":
+                case "obsidianbrick":
+                    return WallID.ObsidianBrick;
+                case "planked":
+                case "plankedwall":
+                    return WallID.Planked;
+                case "boreal":
+                case "borealwood":
+                    return WallID.BorealWood;
+                case "palmwood":
+                    return WallID.PalmWood;
+                case "ebonwood":
+                    return WallID.Ebonwood;
+                case "shadewood":
+                    return WallID.Shadewood;
+                case "pearlwood":
+                    return WallID.Pearlwood;
+                case "richwood":
+                case "richmahogany":
+                    return WallID.Wood; // Rich Mahogany uses Wood wall as fallback
+                case "livingwood":
+                    return WallID.LivingWood;
+                case "spooky":
+                case "spookywood":
+                    return WallID.SpookyWood;
+                case "snow":
+                case "snowwall":
+                    return WallID.SnowWallUnsafe;
+                case "ice":
+                case "icewall":
+                    return WallID.IceUnsafe;
+                default:
+                    // Try to parse as numeric ID
+                    if (int.TryParse(material, out int wallId))
+                    {
+                        return wallId;
+                    }
+                    return WallID.Wood;
+            }
+        }
 
         /// <summary>
         /// Gets the default width for a structure type.
