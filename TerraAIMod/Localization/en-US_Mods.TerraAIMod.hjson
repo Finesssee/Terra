@@ -1,0 +1,65 @@
+Mods: {
+	TerraAIMod: {
+		Configs: {
+			TerraConfig: {
+				DisplayName: Terra AI Configuration
+
+				Headers: {
+					AIProviderSettings: AI Provider Settings
+					ModelSettings: Model Settings
+					BehaviorSettings: Behavior Settings
+				}
+
+				AIProvider: {
+					Label: AI Provider
+					Tooltip: Select which AI provider to use: 'groq', 'openai', or 'gemini'
+				}
+
+				OpenAIApiKey: {
+					Label: OpenAI API Key
+					Tooltip: Your OpenAI API key for GPT models. Keep this secret!
+				}
+
+				GroqApiKey: {
+					Label: Groq API Key
+					Tooltip: Your Groq API key for fast inference. Keep this secret!
+				}
+
+				GeminiApiKey: {
+					Label: Gemini API Key
+					Tooltip: Your Google Gemini API key. Keep this secret!
+				}
+
+				OpenAIModel: {
+					Label: OpenAI Model
+					Tooltip: The OpenAI model to use (e.g., 'gpt-4-turbo-preview', 'gpt-4', 'gpt-3.5-turbo')
+				}
+
+				MaxTokens: {
+					Label: Max Tokens
+					Tooltip: Maximum number of tokens for AI responses (100-65536)
+				}
+
+				Temperature: {
+					Label: Temperature
+					Tooltip: AI creativity/randomness level (0 = deterministic, 2 = very creative)
+				}
+
+				ActionTickDelay: {
+					Label: Action Tick Delay
+					Tooltip: Number of game ticks between Terra AI actions (1-120). Lower = more frequent actions.
+				}
+
+				EnableChatResponses: {
+					Label: Enable Chat Responses
+					Tooltip: Whether Terra AI should respond to chat messages
+				}
+
+				MaxActiveTerras: {
+					Label: Max Active Terras
+					Tooltip: Maximum number of Terra AI instances that can be active at once (1-20)
+				}
+			}
+		}
+	}
+}
