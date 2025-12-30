@@ -224,7 +224,7 @@ Remember: Always respond with valid JSON. Be helpful and consider the game conte
                 int tileX = (int)(npc.Center.X / 16f);
                 int tileY = (int)(npc.Center.Y / 16f);
 
-                sb.AppendLine($"Position: ({tileX}, {tileY})");
+                sb.AppendLine($"My Position: ({tileX}, {tileY})");
                 sb.AppendLine($"Depth: {GetDepthDescription(tileY)}");
                 sb.AppendLine($"Biome: {GetCurrentBiome(tileX, tileY)}");
             }
@@ -232,6 +232,32 @@ Remember: Always respond with valid JSON. Be helpful and consider the game conte
             // Time info
             sb.AppendLine($"Time: {(Main.dayTime ? "Day" : "Night")} ({GetTimeString()})");
             sb.AppendLine();
+
+            // Memory context - current goal and recent actions
+            if (terra?.Memory != null)
+            {
+                // Current goal
+                if (!string.IsNullOrEmpty(terra.Memory.CurrentGoal))
+                {
+                    sb.AppendLine($"Current Goal: {terra.Memory.CurrentGoal}");
+                }
+                else
+                {
+                    sb.AppendLine("Current Goal: None (idle)");
+                }
+
+                // Recent actions
+                var recentActions = terra.Memory.GetRecentActions(5);
+                if (recentActions.Count > 0)
+                {
+                    sb.AppendLine("Recent Actions:");
+                    foreach (var action in recentActions)
+                    {
+                        sb.AppendLine($"  - {action}");
+                    }
+                }
+                sb.AppendLine();
+            }
 
             // Nearby players
             sb.AppendLine("Nearby Players:");
@@ -305,6 +331,26 @@ Remember: Always respond with valid JSON. Be helpful and consider the game conte
                 {
                     sb.AppendLine("  - Standard terrain");
                 }
+            }
+            sb.AppendLine();
+
+            // Inventory context
+            sb.AppendLine("My Inventory:");
+            if (terra?.Inventory != null)
+            {
+                var inventorySummary = GetInventorySummary(terra.Inventory);
+                if (!string.IsNullOrEmpty(inventorySummary))
+                {
+                    sb.AppendLine(inventorySummary);
+                }
+                else
+                {
+                    sb.AppendLine("  - Empty");
+                }
+            }
+            else
+            {
+                sb.AppendLine("  - Empty");
             }
             sb.AppendLine();
 
@@ -547,6 +593,104 @@ Remember: Always respond with valid JSON. Be helpful and consider the game conte
             }
 
             return sb.ToString();
+        }
+
+        /// <summary>
+        /// Gets a summary of Terra's inventory, grouped by item type.
+        /// </summary>
+        /// <param name="inventory">The inventory array to summarize.</param>
+        /// <returns>A formatted inventory summary string.</returns>
+        private static string GetInventorySummary(Item[] inventory)
+        {
+            if (inventory == null || inventory.Length == 0)
+                return null;
+
+            var sb = new StringBuilder();
+            var itemCounts = new System.Collections.Generic.Dictionary<string, int>();
+            var weapons = new System.Collections.Generic.List<string>();
+            var tools = new System.Collections.Generic.List<string>();
+            var materials = new System.Collections.Generic.Dictionary<string, int>();
+
+            foreach (var item in inventory)
+            {
+                if (item == null || item.IsAir)
+                    continue;
+
+                string itemName = item.Name;
+                int count = item.stack;
+
+                // Categorize items
+                if (item.damage > 0 && item.pick == 0 && item.axe == 0 && item.hammer == 0)
+                {
+                    // Weapon
+                    if (!weapons.Contains(itemName))
+                        weapons.Add(itemName);
+                }
+                else if (item.pick > 0 || item.axe > 0 || item.hammer > 0)
+                {
+                    // Tool
+                    if (!tools.Contains(itemName))
+                        tools.Add(itemName);
+                }
+                else if (item.createTile >= 0 || item.createWall >= 0 || item.material)
+                {
+                    // Building material or crafting material
+                    if (materials.ContainsKey(itemName))
+                        materials[itemName] += count;
+                    else
+                        materials[itemName] = count;
+                }
+                else
+                {
+                    // Other items
+                    if (itemCounts.ContainsKey(itemName))
+                        itemCounts[itemName] += count;
+                    else
+                        itemCounts[itemName] = count;
+                }
+            }
+
+            // Output weapons
+            if (weapons.Count > 0)
+            {
+                sb.AppendLine($"  Weapons: {string.Join(", ", weapons)}");
+            }
+
+            // Output tools
+            if (tools.Count > 0)
+            {
+                sb.AppendLine($"  Tools: {string.Join(", ", tools)}");
+            }
+
+            // Output materials (top 5)
+            if (materials.Count > 0)
+            {
+                var sortedMaterials = new System.Collections.Generic.List<System.Collections.Generic.KeyValuePair<string, int>>(materials);
+                sortedMaterials.Sort((a, b) => b.Value.CompareTo(a.Value));
+                var topMaterials = sortedMaterials.GetRange(0, Math.Min(5, sortedMaterials.Count));
+                var materialStrings = new System.Collections.Generic.List<string>();
+                foreach (var kvp in topMaterials)
+                {
+                    materialStrings.Add($"{kvp.Key} x{kvp.Value}");
+                }
+                sb.AppendLine($"  Materials: {string.Join(", ", materialStrings)}");
+            }
+
+            // Output other items (top 3)
+            if (itemCounts.Count > 0)
+            {
+                var sortedItems = new System.Collections.Generic.List<System.Collections.Generic.KeyValuePair<string, int>>(itemCounts);
+                sortedItems.Sort((a, b) => b.Value.CompareTo(a.Value));
+                var topItems = sortedItems.GetRange(0, Math.Min(3, sortedItems.Count));
+                var itemStrings = new System.Collections.Generic.List<string>();
+                foreach (var kvp in topItems)
+                {
+                    itemStrings.Add($"{kvp.Key} x{kvp.Value}");
+                }
+                sb.AppendLine($"  Other: {string.Join(", ", itemStrings)}");
+            }
+
+            return sb.Length > 0 ? sb.ToString() : null;
         }
 
         /// <summary>
