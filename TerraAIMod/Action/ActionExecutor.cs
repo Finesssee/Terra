@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using TerraAIMod.Action.Actions;
@@ -12,6 +13,7 @@ namespace TerraAIMod.Action
     /// <summary>
     /// Manages task queuing and action execution for a Terra NPC.
     /// Handles natural language command processing, task planning, and action lifecycle.
+    /// Thread-safe: Commands are queued from background threads and processed on the main thread.
     /// </summary>
     public class ActionExecutor
     {
@@ -23,9 +25,20 @@ namespace TerraAIMod.Action
         private readonly TerraNPC terra;
 
         /// <summary>
-        /// Queue of tasks waiting to be executed.
+        /// Queue of tasks waiting to be executed. Only accessed from main thread.
         /// </summary>
         private readonly Queue<Task> taskQueue;
+
+        /// <summary>
+        /// Thread-safe queue for pending command results from background async processing.
+        /// Results are queued from background threads and dequeued on main thread.
+        /// </summary>
+        private readonly ConcurrentQueue<PendingCommandResult> pendingCommandResults;
+
+        /// <summary>
+        /// Thread-safe queue for pending chat messages to be sent on main thread.
+        /// </summary>
+        private readonly ConcurrentQueue<string> pendingChatMessages;
 
         /// <summary>
         /// The currently executing action, or null if idle.
@@ -57,6 +70,26 @@ namespace TerraAIMod.Action
         /// </summary>
         private BaseAction idleFollowAction;
 
+        /// <summary>
+        /// Flag indicating that a stop was requested from background thread.
+        /// </summary>
+        private volatile bool stopRequested;
+
+        #endregion
+
+        #region Nested Types
+
+        /// <summary>
+        /// Represents the result of an async command processing operation.
+        /// </summary>
+        private class PendingCommandResult
+        {
+            public string Plan { get; set; }
+            public List<Task> Tasks { get; set; }
+            public string ErrorMessage { get; set; }
+            public bool IsError { get; set; }
+        }
+
         #endregion
 
         #region Properties
@@ -64,7 +97,7 @@ namespace TerraAIMod.Action
         /// <summary>
         /// Whether an action is currently executing or tasks are queued.
         /// </summary>
-        public bool IsExecuting => currentAction != null || taskQueue.Count > 0;
+        public bool IsExecuting => currentAction != null || taskQueue.Count > 0 || !pendingCommandResults.IsEmpty;
 
         /// <summary>
         /// The current goal description, or null if no active goal.
@@ -134,12 +167,16 @@ namespace TerraAIMod.Action
         {
             this.terra = terra ?? throw new ArgumentNullException(nameof(terra));
             this.taskQueue = new Queue<Task>();
+            this.pendingCommandResults = new ConcurrentQueue<PendingCommandResult>();
+            this.pendingChatMessages = new ConcurrentQueue<string>();
             this.currentAction = null;
             this.currentGoal = null;
             this.ticksSinceLastAction = 0;
             this.aiTaskPlanner = null;
             this.simpleTaskPlanner = null;
             this.idleFollowAction = null;
+            this.stopRequested = false;
+            TerraAIMod.Instance?.Logger.Debug($"[ActionExecutor] Created ActionExecutor for Terra '{terra.TerraName}'");
         }
 
         #endregion
@@ -149,15 +186,22 @@ namespace TerraAIMod.Action
         /// <summary>
         /// Processes a natural language command by planning tasks and queuing them for execution.
         /// Uses the AI-powered TaskPlanner if an API key is configured, otherwise falls back to SimpleTaskPlanner.
+        /// This method is thread-safe: it queues results to be processed on the main thread.
         /// </summary>
         /// <param name="command">The natural language command to process.</param>
         public async System.Threading.Tasks.Task ProcessNaturalLanguageCommand(string command)
         {
-            if (string.IsNullOrWhiteSpace(command))
-                return;
+            TerraAIMod.Instance?.Logger.Debug($"[ActionExecutor.ProcessNaturalLanguageCommand] ENTER - Terra '{terra.TerraName}', command='{command}'");
 
-            // Cancel any current action and clear the queue
-            StopCurrentAction();
+            if (string.IsNullOrWhiteSpace(command))
+            {
+                TerraAIMod.Instance?.Logger.Debug($"[ActionExecutor.ProcessNaturalLanguageCommand] EXIT - Empty command, returning early");
+                return;
+            }
+
+            // Signal that we want to stop current action (will be processed on main thread)
+            stopRequested = true;
+            TerraAIMod.Instance?.Logger.Debug($"[ActionExecutor.ProcessNaturalLanguageCommand] Set stopRequested=true");
 
             try
             {
@@ -181,31 +225,27 @@ namespace TerraAIMod.Action
 
                 if (response != null)
                 {
-                    // Set the current goal from the plan
-                    currentGoal = response.Plan;
-
-                    // Update Terra's memory with the current goal
-                    if (terra.Memory != null)
+                    // Queue the result to be processed on the main thread
+                    pendingCommandResults.Enqueue(new PendingCommandResult
                     {
-                        terra.Memory.CurrentGoal = currentGoal;
-                    }
+                        Plan = response.Plan,
+                        Tasks = response.Tasks ?? new List<Task>(),
+                        IsError = false
+                    });
 
-                    // Queue all tasks from the response
-                    if (response.Tasks != null)
-                    {
-                        foreach (var task in response.Tasks)
-                        {
-                            taskQueue.Enqueue(task);
-                        }
-                    }
-
-                    TerraAIMod.Instance?.Logger.Info($"Terra '{terra.TerraName}' planned {taskQueue.Count} tasks for goal: {currentGoal}");
+                    TerraAIMod.Instance?.Logger.Info($"Terra '{terra.TerraName}' planned {response.Tasks?.Count ?? 0} tasks for goal: {response.Plan}");
                 }
             }
             catch (Exception ex)
             {
                 TerraAIMod.Instance?.Logger.Error($"Error processing command: {ex.Message}");
-                terra.SendChatMessage($"I had trouble understanding that command: {ex.Message}");
+
+                // Queue the error message to be displayed on main thread
+                pendingCommandResults.Enqueue(new PendingCommandResult
+                {
+                    ErrorMessage = $"I had trouble understanding that command: {ex.Message}",
+                    IsError = true
+                });
             }
         }
 
@@ -265,17 +305,52 @@ namespace TerraAIMod.Action
         }
 
         /// <summary>
+        /// Queues a chat message to be sent on the main thread.
+        /// Thread-safe method that can be called from any thread.
+        /// </summary>
+        /// <param name="message">The message to send.</param>
+        public void QueueChatMessage(string message)
+        {
+            if (!string.IsNullOrWhiteSpace(message))
+            {
+                pendingChatMessages.Enqueue(message);
+            }
+        }
+
+        /// <summary>
         /// Updates the action executor each game tick.
         /// Handles action completion, task dequeuing, and idle behavior.
+        /// Must be called from the main thread.
         /// </summary>
         public void Tick()
         {
+            // Debug: Log tick entry periodically (every 60 ticks to avoid spam)
+            if (ticksSinceLastAction % 60 == 0)
+            {
+                TerraAIMod.Instance?.Logger.Debug($"[ActionExecutor.Tick] Terra '{terra.TerraName}': ticksSinceLastAction={ticksSinceLastAction}, queueCount={taskQueue.Count}, hasCurrentAction={currentAction != null}, currentGoal='{currentGoal}'");
+            }
+
+            // Process any pending chat messages from background threads
+            ProcessPendingChatMessages();
+
+            // Check if stop was requested from background thread
+            if (stopRequested)
+            {
+                StopCurrentActionInternal();
+                stopRequested = false;
+            }
+
+            // Process any pending command results from background threads
+            ProcessPendingCommandResults();
+
             // Check if current action is complete
             if (currentAction != null && currentAction.IsComplete)
             {
+                TerraAIMod.Instance?.Logger.Debug($"[ActionExecutor.Tick] Terra '{terra.TerraName}': Current action '{currentAction.Description}' is COMPLETE. Result={(currentAction.Result != null ? (currentAction.Result.Success ? "Success" : "Failed") : "null")}");
                 // Log completion to memory
                 LogActionCompletion(currentAction);
                 currentAction = null;
+                TerraAIMod.Instance?.Logger.Debug($"[ActionExecutor.Tick] Terra '{terra.TerraName}': currentAction set to null after completion");
             }
 
             // If we have an active action, tick it and return
@@ -295,6 +370,7 @@ namespace TerraAIMod.Action
             if (ticksSinceLastAction >= actionDelay && taskQueue.Count > 0)
             {
                 var task = taskQueue.Dequeue();
+                TerraAIMod.Instance?.Logger.Debug($"[ActionExecutor.Tick] Terra '{terra.TerraName}': DEQUEUING task '{task.Action}' (ticksSinceLastAction={ticksSinceLastAction} >= actionDelay={actionDelay}). Remaining queue count: {taskQueue.Count}");
                 ExecuteTask(task);
                 ticksSinceLastAction = 0;
             }
@@ -308,8 +384,68 @@ namespace TerraAIMod.Action
 
         /// <summary>
         /// Stops the current action and clears the task queue.
+        /// Should only be called from main thread.
         /// </summary>
         public void StopCurrentAction()
+        {
+            StopCurrentActionInternal();
+        }
+
+        #endregion
+
+        #region Private Methods
+
+        /// <summary>
+        /// Processes pending chat messages queued from background threads.
+        /// </summary>
+        private void ProcessPendingChatMessages()
+        {
+            while (pendingChatMessages.TryDequeue(out string message))
+            {
+                terra.SendChatMessage(message);
+            }
+        }
+
+        /// <summary>
+        /// Processes pending command results from background async operations.
+        /// </summary>
+        private void ProcessPendingCommandResults()
+        {
+            while (pendingCommandResults.TryDequeue(out PendingCommandResult result))
+            {
+                if (result.IsError)
+                {
+                    // Send error message
+                    terra.SendChatMessage(result.ErrorMessage);
+                }
+                else
+                {
+                    // Apply the command result
+                    currentGoal = result.Plan;
+
+                    // Update Terra's memory with the current goal
+                    if (terra.Memory != null)
+                    {
+                        terra.Memory.CurrentGoal = currentGoal;
+                    }
+
+                    // Queue all tasks from the response
+                    if (result.Tasks != null)
+                    {
+                        foreach (var task in result.Tasks)
+                        {
+                            TerraAIMod.Instance?.Logger.Debug($"[ActionExecutor.ProcessPendingCommandResults] ENQUEUE task: Action='{task.Action}'");
+                            taskQueue.Enqueue(task);
+                        }
+                    }
+                }
+            }
+        }
+
+        /// <summary>
+        /// Internal implementation of StopCurrentAction.
+        /// </summary>
+        private void StopCurrentActionInternal()
         {
             // Cancel the current action if one exists
             if (currentAction != null)
@@ -336,24 +472,27 @@ namespace TerraAIMod.Action
             ticksSinceLastAction = 0;
         }
 
-        #endregion
-
-        #region Private Methods
-
         /// <summary>
         /// Executes a task by creating and starting the appropriate action.
         /// </summary>
         /// <param name="task">The task to execute.</param>
         private void ExecuteTask(Task task)
         {
-            if (task == null)
-                return;
+            TerraAIMod.Instance?.Logger.Debug($"[ActionExecutor.ExecuteTask] ENTER - Terra '{terra.TerraName}', task.Action='{task?.Action}'");
 
+            if (task == null)
+            {
+                TerraAIMod.Instance?.Logger.Debug($"[ActionExecutor.ExecuteTask] EXIT - Task was null");
+                return;
+            }
+
+            TerraAIMod.Instance?.Logger.Debug($"[ActionExecutor.ExecuteTask] Creating action for task '{task.Action}'");
             var action = CreateAction(task);
 
             if (action != null)
             {
                 currentAction = action;
+                TerraAIMod.Instance?.Logger.Debug($"[ActionExecutor.ExecuteTask] Calling Start() on action '{action.Description}'");
                 currentAction.Start();
 
                 TerraAIMod.Instance?.Logger.Info($"Terra '{terra.TerraName}' started action: {action.Description}");
@@ -397,6 +536,10 @@ namespace TerraAIMod.Action
                 case "dig":
                     // Dig is an alias for mine with direction support
                     return new DigAction(terra, task);
+
+                case "say":
+                    // Say action sends a chat message immediately
+                    return new SayAction(terra, task);
 
                 default:
                     TerraAIMod.Instance?.Logger.Warn($"Unknown action type: {task.Action}");
