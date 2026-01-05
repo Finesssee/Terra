@@ -321,6 +321,9 @@ namespace TerraAIMod.AI
                 // NPC Housing
                 "npchousing" or "npc_housing" or "housing" or "buildhouse" or "build_house" => "npcHousing",
 
+                // Communication
+                "say" or "speak" or "talk" or "respond" or "reply" or "chat" or "message" => "say",
+
                 _ => lower
             };
         }
@@ -643,6 +646,13 @@ namespace TerraAIMod.AI
                 {
                     parameters["npc"] = npcMatch.Groups[1].Value;
                 }
+
+                // Extract message (for say action)
+                var messageMatch = Regex.Match(objectContent, @"""message""\s*:\s*""([^""]+)""", RegexOptions.IgnoreCase);
+                if (messageMatch.Success)
+                {
+                    parameters["message"] = messageMatch.Groups[1].Value;
+                }
             }
 
             return parameters;
@@ -701,6 +711,17 @@ namespace TerraAIMod.AI
                     { "target", "nearest" }
                 }));
                 result.Plan = "Attacking enemies (extracted from text)";
+                result.Success = true;
+            }
+            else if (lower.Contains("say") || lower.Contains("speak") || lower.Contains("tell"))
+            {
+                // For say action from keywords, we can't extract a specific message
+                // so we use the whole response as a fallback message
+                result.Tasks.Add(new Task("say", new Dictionary<string, object>
+                {
+                    { "message", "I understood you wanted me to say something, but I couldn't parse the message." }
+                }));
+                result.Plan = "Communication (extracted from text)";
                 result.Success = true;
             }
 

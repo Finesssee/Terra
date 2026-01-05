@@ -231,6 +231,14 @@ namespace TerraAIMod.AI
                     }
                     break;
 
+                case "say":
+                    // Say action requires a message parameter
+                    if (!task.HasParameter("message"))
+                    {
+                        return (false, "say action requires 'message' parameter");
+                    }
+                    break;
+
                 default:
                     return (false, $"Unknown action type: {task.Action}");
             }
