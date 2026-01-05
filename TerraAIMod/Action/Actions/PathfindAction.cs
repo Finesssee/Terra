@@ -77,9 +77,12 @@ namespace TerraAIMod.Action.Actions
         /// </summary>
         protected override void OnStart()
         {
+            TerraAIMod.Instance?.Logger.Debug($"[PathfindAction.OnStart] ENTER - Terra '{terra.TerraName}'");
+
             // Get target coordinates from task parameters (tile coordinates)
             targetX = task.GetParameter<int>("x", 0);
             targetY = task.GetParameter<int>("y", 0);
+            TerraAIMod.Instance?.Logger.Debug($"[PathfindAction.OnStart] Target coordinates: ({targetX}, {targetY})");
 
             // Validate target is within world bounds
             if (targetX < 0 || targetX >= Main.maxTilesX ||
@@ -123,11 +126,13 @@ namespace TerraAIMod.Action.Actions
 
                 if (path == null)
                 {
+                    TerraAIMod.Instance?.Logger.Debug($"[PathfindAction.OnTick] No path found from ({currentX}, {currentY}) to ({targetX}, {targetY})");
                     result = ActionResult.Fail("No path found");
                     return;
                 }
 
                 // Set the path for execution
+                TerraAIMod.Instance?.Logger.Debug($"[PathfindAction.OnTick] Path computed with {path.Count} nodes");
                 pathExecutor.SetPath(path);
                 pathComputed = true;
             }
@@ -138,6 +143,7 @@ namespace TerraAIMod.Action.Actions
             // Check if path execution is complete
             if (pathExecutor.IsComplete)
             {
+                TerraAIMod.Instance?.Logger.Debug($"[PathfindAction.OnTick] Reached target position ({targetX}, {targetY})");
                 result = ActionResult.Succeed($"Reached target position ({targetX}, {targetY})");
                 return;
             }
@@ -145,6 +151,7 @@ namespace TerraAIMod.Action.Actions
             // Check if Terra got stuck
             if (pathExecutor.IsStuck)
             {
+                TerraAIMod.Instance?.Logger.Debug($"[PathfindAction.OnTick] Got stuck while pathfinding");
                 result = ActionResult.Fail("Got stuck");
                 return;
             }

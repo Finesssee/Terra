@@ -106,6 +106,8 @@ namespace TerraAIMod.Action.Actions
         /// </summary>
         protected override void OnStart()
         {
+            TerraAIMod.Instance?.Logger.Debug($"[FollowPlayerAction.OnStart] ENTER - Terra '{terra.TerraName}'");
+
             // Get player name from task parameters, default to "nearest"
             targetPlayerName = task.GetParameter<string>("playerName", "nearest");
             if (string.IsNullOrEmpty(targetPlayerName))
@@ -118,12 +120,14 @@ namespace TerraAIMod.Action.Actions
 
             if (targetPlayer == null)
             {
+                TerraAIMod.Instance?.Logger.Debug($"[FollowPlayerAction.OnStart] Could not find player '{targetPlayerName}'");
                 result = ActionResult.Fail($"Could not find player '{targetPlayerName}'");
                 return;
             }
 
             // Update the target player name with the actual player's name
             targetPlayerName = targetPlayer.name;
+            TerraAIMod.Instance?.Logger.Debug($"[FollowPlayerAction.OnStart] Found target player: '{targetPlayerName}' (whoAmI={targetPlayer.whoAmI})");
 
             // Initialize pathfinding
             pathfinder = new TerrariaPathfinder(terra.NPC);
@@ -320,6 +324,8 @@ namespace TerraAIMod.Action.Actions
             if (targetPlayer == null)
                 return;
 
+            TerraAIMod.Instance?.Logger.Debug($"[FollowPlayerAction.TeleportNearPlayer] Teleporting Terra to near player '{targetPlayerName}'");
+
             // Find a safe spot near the player
             Vector2 safeSpot = FindSafeSpot(targetPlayer.Center);
 
@@ -435,6 +441,8 @@ namespace TerraAIMod.Action.Actions
         {
             if (targetPlayer == null || pathfinder == null)
                 return;
+
+            TerraAIMod.Instance?.Logger.Debug($"[FollowPlayerAction.CalculatePathToPlayer] Calculating path to player '{targetPlayerName}'");
 
             // Get tile coordinates
             int startX = (int)(terra.NPC.Center.X / TileSize);

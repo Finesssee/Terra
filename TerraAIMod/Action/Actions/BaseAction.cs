@@ -55,8 +55,14 @@ namespace TerraAIMod.Action.Actions
         {
             if (!started)
             {
+                TerraAIMod.Instance?.Logger.Debug($"[BaseAction.Start] {GetType().Name} '{Description}' - Starting action for Terra '{terra.TerraName}'");
                 started = true;
                 OnStart();
+                TerraAIMod.Instance?.Logger.Debug($"[BaseAction.Start] {GetType().Name} '{Description}' - OnStart() completed, IsComplete={IsComplete}");
+            }
+            else
+            {
+                TerraAIMod.Instance?.Logger.Debug($"[BaseAction.Start] {GetType().Name} '{Description}' - Already started, ignoring Start() call");
             }
         }
 
@@ -77,9 +83,11 @@ namespace TerraAIMod.Action.Actions
         /// </summary>
         public void Cancel()
         {
+            TerraAIMod.Instance?.Logger.Debug($"[BaseAction.Cancel] {GetType().Name} '{Description}' - Cancelling action for Terra '{terra.TerraName}'");
             cancelled = true;
             result = ActionResult.Fail("Cancelled");
             OnCancel();
+            TerraAIMod.Instance?.Logger.Debug($"[BaseAction.Cancel] {GetType().Name} '{Description}' - Action cancelled");
         }
 
         /// <summary>
