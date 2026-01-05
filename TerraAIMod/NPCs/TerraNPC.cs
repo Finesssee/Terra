@@ -231,6 +231,9 @@ namespace TerraAIMod.NPCs
             {
                 ActionExecutor = new ActionExecutor(this);
             }
+
+            // Register with TerraManager so the loaded Terra is tracked
+            TerraManager.Instance?.RegisterTerra(this);
         }
 
         #endregion
@@ -299,7 +302,8 @@ namespace TerraAIMod.NPCs
             catch (Exception ex)
             {
                 TerraAIMod.Instance?.Logger.Error($"Error processing command: {ex.Message}");
-                SendChatMessage($"Sorry, I encountered an error: {ex.Message}");
+                // Use QueueChatMessage to safely queue the message for main thread processing
+                ActionExecutor?.QueueChatMessage($"Sorry, I encountered an error: {ex.Message}");
             }
         }
 
