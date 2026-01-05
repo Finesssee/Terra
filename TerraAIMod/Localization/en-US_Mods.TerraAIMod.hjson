@@ -63,3 +63,68 @@ Mods: {
 		}
 	}
 }
+
+"Keybinds.Toggle Terra AI Panel.DisplayName": Toggle  Terra  A I  Panel
+NPCs.TerraNPC.DisplayName: Terra N P C
+
+Configs: {
+	TerraConfig: {
+		DisplayName: Terra Config
+
+		Headers: {
+			AIProviderSettings: A I Provider Settings Header
+			ModelSettings: Model Settings Header
+			BehaviorSettings: Behavior Settings Header
+		}
+
+		AIProvider: {
+			Label: A I Provider
+			Tooltip: ""
+		}
+
+		OpenAIApiKey: {
+			Label: Open A I Api Key
+			Tooltip: ""
+		}
+
+		GroqApiKey: {
+			Label: Groq Api Key
+			Tooltip: ""
+		}
+
+		GeminiApiKey: {
+			Label: Gemini Api Key
+			Tooltip: ""
+		}
+
+		OpenAIModel: {
+			Label: Open A I Model
+			Tooltip: ""
+		}
+
+		MaxTokens: {
+			Label: Max Tokens
+			Tooltip: ""
+		}
+
+		Temperature: {
+			Label: Temperature
+			Tooltip: ""
+		}
+
+		ActionTickDelay: {
+			Label: Action Tick Delay
+			Tooltip: ""
+		}
+
+		EnableChatResponses: {
+			Label: Enable Chat Responses
+			Tooltip: ""
+		}
+
+		MaxActiveTerras: {
+			Label: Max Active Terras
+			Tooltip: ""
+		}
+	}
+}
